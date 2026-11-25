@@ -1,0 +1,253 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>BWAI 2026 - Prototype Recouvrement Factures Impayees</title>
+    <style>
+        body { font-family: system-ui, -apple-system, sans-serif; margin: 0; background: #f4f6f9; color: #1e293b; }
+        header { background: #0f172a; color: #fff; padding: 14px 24px; display: flex; justify-content: space-between; align-items: center; }
+        header a { color: #93c5fd; text-decoration: none; margin-left: 16px; font-size: 0.9rem; }
+        .container { max-width: 1280px; margin: 20px auto; padding: 0 16px; }
+        .kpi-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 12px; margin-bottom: 20px; }
+        .card { background: #fff; border-radius: 8px; padding: 16px; box-shadow: 0 1px 3px rgba(0,0,0,0.08); margin-bottom: 20px; }
+        .kpi-title { font-size: 0.8rem; color: #64748b; text-transform: uppercase; }
+        .kpi-value { font-size: 1.4rem; font-weight: 700; margin-top: 6px; color: #0f172a; }
+        table { width: 100%; border-collapse: collapse; font-size: 0.88rem; }
+        th, td { text-align: left; padding: 10px 8px; border-bottom: 1px solid #e2e8f0; }
+        th { background: #f8fafc; color: #475569; font-weight: 600; }
+        .badge { display: inline-block; padding: 3px 8px; border-radius: 4px; font-size: 0.75rem; font-weight: 600; }
+        .badge-ECHUE { background: #fee2e2; color: #991b1b; }
+        .badge-PARTIELLEMENT_PAYEE { background: #fef3c7; color: #92400e; }
+        .badge-SOLDEE { background: #dcfce7; color: #166534; }
+        .badge-CONTESTEE { background: #f3e8ff; color: #6b21a8; }
+        .badge-COUVERTE_PAR_ECHEANCIER { background: #e0f2fe; color: #075985; }
+        .badge-NON_ECHUE { background: #f1f5f9; color: #475569; }
+        .btn { padding: 6px 12px; border-radius: 4px; border: none; cursor: pointer; font-size: 0.82rem; font-weight: 600; }
+        .btn-primary { background: #2563eb; color: #fff; }
+        .btn-success { background: #16a34a; color: #fff; }
+        .btn-warning { background: #d97706; color: #fff; }
+        .btn-danger { background: #dc2626; color: #fff; }
+    </style>
+</head>
+<body>
+<header>
+    <div>
+        <strong>BWAI 2026 - Recouvrement Automatique des Factures Impayees (Mode Simulation)</strong>
+        <span style="font-size:0.8rem; color:#cbd5e1; margin-left:12px;">Date de reference : {{ kpis.reference_date }}</span>
+    </div>
+    <nav>
+        <a href="/">Tableau de bord</a>
+        <a href="/docs" target="_blank">API Swagger (/docs)</a>
+    </nav>
+</header>
+
+<div class="container">
+    <div style="display:flex; gap:10px; margin-bottom:16px;">
+        <button class="btn btn-primary" onclick="callApi('/api/system/reset-demo')">Reinitialiser Portefeuille Demo</button>
+        <button class="btn btn-success" onclick="callApi('/api/reminders/prepare-all')">Preparer Relances Graduees</button>
+        <button class="btn btn-warning" onclick="callApi('/api/system/recover')">Simuler Reprise Apres Interruption</button>
+    </div>
+
+    <div class="kpi-grid">
+        <div class="card">
+            <div class="kpi-title">Encours Total Restant</div>
+            <div class="kpi-value">{{ "{:,.0f}".format(kpis.encours_total).replace(",", " ") }} FCFA</div>
+        </div>
+        <div class="card">
+            <div class="kpi-title">Total en Retard ({{ kpis.nb_factures_echues }} factures)</div>
+            <div class="kpi-value" style="color:#dc2626;">{{ "{:,.0f}".format(kpis.total_en_retard).replace(",", " ") }} FCFA</div>
+        </div>
+        <div class="card">
+            <div class="kpi-title">File de Revue Humaine</div>
+            <div class="kpi-value" style="color:#d97706;">{{ kpis.nb_en_revue_humaine }} dossier(s)</div>
+        </div>
+        <div class="card">
+            <div class="kpi-title">Dossiers Suspendus (Litige / Plan)</div>
+            <div class="kpi-value">{{ kpis.nb_dossiers_suspendus }}</div>
+        </div>
+        <div class="card">
+            <div class="kpi-title">Paiements Simules</div>
+            <div class="kpi-value" style="color:#16a34a;">{{ "{:,.0f}".format(kpis.total_paiements_simules).replace(",", " ") }} FCFA</div>
+        </div>
+    </div>
+
+    <div class="card">
+        <h3>1. Portefeuille des Factures et Priorisation Explicable</h3>
+        <table>
+            <thead>
+                <tr>
+                    <th>Facture</th>
+                    <th>Client</th>
+                    <th>Echeance</th>
+                    <th>Montant Initial</th>
+                    <th>Solde Restant</th>
+                    <th>Retard</th>
+                    <th>Statut Metier</th>
+                    <th>Score et Explication</th>
+                    <th>Actions</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for inv in invoices %}
+                <tr>
+                    <td><a href="/invoices/{{ inv.invoice_id }}"><strong>{{ inv.invoice_id }}</strong></a></td>
+                    <td>{{ inv.nom_affiche }}<br><small style="color:#64748b;">Canal : {{ inv.canal_prefere }}</small></td>
+                    <td>{{ inv.date_echeance }}</td>
+                    <td>{{ "{:,.0f}".format(inv.montant_initial).replace(",", " ") }} {{ inv.devise }}</td>
+                    <td><strong>{{ "{:,.0f}".format(inv.solde_restant).replace(",", " ") }} {{ inv.devise }}</strong></td>
+                    <td>{{ inv.jours_retard }} j</td>
+                    <td><span class="badge badge-{{ inv.statut_calcule }}">{{ inv.statut_calcule }}</span></td>
+                    <td>
+                        <strong>{{ "%.3f"|format(inv.score_priorite) }}</strong><br>
+                        <small style="color:#475569;">{{ inv.explication_score }}</small>
+                        {% if inv.ai_categorie and inv.ai_categorie != 'AUCUN_MESSAGE' %}
+                        <br><small style="color:#6b21a8;">IA : {{ inv.ai_categorie }} (confiance {{ "%.0f"|format(inv.ai_confiance * 100) }}%)</small>
+                        {% endif %}
+                    </td>
+                    <td>
+                        {% if inv.solde_restant > 0 %}
+                        <button class="btn btn-success" onclick="simulatePayment('{{ inv.invoice_id }}', {{ inv.solde_restant }})">Simuler Paiement</button>
+                        {% endif %}
+                    </td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+
+    <div class="card">
+        <h3>2. File de Validation Humaine (Litiges, Montants >= {{ "{:,.0f}".format(kpis.high_amount_threshold).replace(",", " ") }} FCFA, Cas Incertains IA)</h3>
+        {% if review_queue %}
+        <table>
+            <thead>
+                <tr>
+                    <th>Relance</th>
+                    <th>Facture / Client</th>
+                    <th>Solde</th>
+                    <th>Motif du Blocage</th>
+                    <th>Message Prepare</th>
+                    <th>Decision Humaine</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for rem in review_queue %}
+                <tr>
+                    <td><strong>{{ rem.reminder_id }}</strong><br><small>{{ rem.niveau_relance }}</small></td>
+                    <td>{{ rem.invoice_id }}<br><small>{{ rem.nom_affiche }}</small></td>
+                    <td>{{ "{:,.0f}".format(rem.solde_restant).replace(",", " ") }} FCFA</td>
+                    <td style="color:#b45309; font-weight:600;">{{ rem.motif_blocage }}</td>
+                    <td><small>{{ rem.contenu_message }}</small></td>
+                    <td>
+                        <button class="btn btn-success" onclick="reviewAction('{{ rem.reminder_id }}', 'APPROUVER')">Approuver</button>
+                        <button class="btn btn-danger" onclick="reviewAction('{{ rem.reminder_id }}', 'REJETER')">Rejeter</button>
+                    </td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+        {% else %}
+        <p style="color:#64748b;">Aucun dossier en attente de validation humaine.</p>
+        {% endif %}
+    </div>
+
+    <div class="card">
+        <h3>3. File des Relances et Verification Pre-Envoi (Simulation)</h3>
+        <table>
+            <thead>
+                <tr>
+                    <th>ID Relance</th>
+                    <th>Facture</th>
+                    <th>Canal</th>
+                    <th>Niveau</th>
+                    <th>Statut Action</th>
+                    <th>Action</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for rem in reminders %}
+                <tr>
+                    <td>{{ rem.reminder_id }}</td>
+                    <td>{{ rem.invoice_id }} ({{ rem.nom_affiche }})</td>
+                    <td>{{ rem.canal }}</td>
+                    <td>{{ rem.niveau_relance }}</td>
+                    <td><strong>{{ rem.statut_action }}</strong> {% if rem.motif_blocage %}<br><small style="color:#64748b;">{{ rem.motif_blocage }}</small>{% endif %}</td>
+                    <td>
+                        {% if rem.statut_action == 'APPROUVEE' %}
+                        <button class="btn btn-primary" onclick="callApi('/api/reminders/{{ rem.reminder_id }}/send')">Reverifier et Simuler Envoi</button>
+                        {% endif %}
+                    </td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+
+    <div class="card">
+        <h3>4. Journal d'Audit et de Tracabilite</h3>
+        <table>
+            <thead>
+                <tr>
+                    <th>Horodatage</th>
+                    <th>Acteur</th>
+                    <th>Action</th>
+                    <th>Objet</th>
+                    <th>Ancienne Valeur</th>
+                    <th>Nouvelle Valeur</th>
+                    <th>Motif</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for log in audit_logs %}
+                <tr>
+                    <td><small>{{ log.timestamp }}</small></td>
+                    <td><strong>{{ log.acteur }}</strong></td>
+                    <td>{{ log.action }}</td>
+                    <td>{{ log.objet_type }} : {{ log.objet_id }}</td>
+                    <td><small>{{ log.ancienne_valeur or '-' }}</small></td>
+                    <td><small>{{ log.nouvelle_valeur or '-' }}</small></td>
+                    <td><small>{{ log.motif or '-' }}</small></td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+</div>
+
+<script>
+async function callApi(url) {
+    const res = await fetch(url, { method: 'POST' });
+    const data = await res.json();
+    alert(JSON.stringify(data, null, 2));
+    window.location.reload();
+}
+
+async function reviewAction(reminderId, decision) {
+    const motif = prompt("Motif de la decision (" + decision + ") :", "Verifie par le gestionnaire PME");
+    if (!motif) return;
+    const res = await fetch('/api/review/' + reminderId, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ decision: decision, motif: motif })
+    });
+    const data = await res.json();
+    alert(JSON.stringify(data, null, 2));
+    window.location.reload();
+}
+
+async function simulatePayment(invoiceId, solde) {
+    const ref = prompt("Reference Mobile Money fictive :", "MOMO-SIM-" + invoiceId);
+    if (!ref) return;
+    const res = await fetch('/api/payments/simulate', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ invoice_id: invoiceId, montant: solde, reference_fictive: ref })
+    });
+    const data = await res.json();
+    alert(JSON.stringify(data, null, 2));
+    window.location.reload();
+}
+</script>
+</body>
+</html>
+

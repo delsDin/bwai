@@ -1,0 +1,23 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+    <meta charset="UTF-8">
+    <title>Detail Facture {{ detail.invoice.invoice_id }} - BWAI 2026</title>
+    <style>
+        body { font-family: system-ui, sans-serif; margin: 24px; background: #f4f6f9; color: #1e293b; }
+        .card { background: #fff; padding: 18px; border-radius: 8px; margin-bottom: 16px; box-shadow: 0 1px 3px rgba(0,0,0,0.08); }
+    </style>
+</head>
+<body>
+    <p><a href="/">Retour au tableau de bord</a></p>
+    <div class="card">
+        <h2>Dossier Facture {{ detail.invoice.invoice_id }} - {{ detail.invoice.nom_affiche }}</h2>
+        <p><strong>Statut :</strong> {{ detail.invoice.statut_calcule }} | <strong>Solde restant :</strong> {{ "{:,.0f}".format(detail.invoice.solde_restant).replace(",", " ") }} {{ detail.invoice.devise }} | <strong>Retard :</strong> {{ detail.invoice.jours_retard }} jours</p>
+        <p><strong>Explication du score :</strong> {{ detail.invoice.explication_score }}</p>
+        {% if detail.invoice.dernier_message_client %}
+        <p><strong>Dernier message client :</strong> "{{ detail.invoice.dernier_message_client }}" -> Classification IA : <strong>{{ detail.invoice.ai_categorie }}</strong> (Confiance : {{ "%.0f"|format((detail.invoice.ai_confiance or 0) * 100) }}%)</p>
+        {% endif %}
+    </div>
+</body>
+</html>
+

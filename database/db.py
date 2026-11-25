@@ -1,0 +1,50 @@
+"""
+Gestionnaire de connexion SQLite locale et d'initialisation du schéma.
+Fonctionne 100 % hors connexion (Module K).
+"""
+import sqlite3
+from contextlib import contextmanager
+from pathlib import Path
+from typing import Iterator
+
+import config
+
+
+def get_connection(db_path: Path | None = None) -> sqlite3.Connection:
+    target_path = db_path or config.DATABASE_PATH
+    target_path.parent.mkdir(parents=True, exist_ok=True)
+    conn = sqlite3.connect(str(target_path))
+    conn.row_factory = sqlite3.Row
+    conn.execute("PRAGMA foreign_keys = ON;")
+    return conn
+
+
+@contextmanager
+def db_session(db_path: Path | None = None) -> Iterator[sqlite3.Connection]:
+    conn = get_connection(db_path)
+    try:
+        yield conn
+        conn.commit()
+    except Exception:
+        conn.rollback()
+        raise
+    finally:
+        conn.close()
+
+
+def init_db(db_path: Path | None = None) -> None:
+    """Crée les tables SQLite et insère les paramètres par défaut s'ils n'existent pas."""
+    schema_sql = config.SCHEMA_PATH.read_text(encoding="utf-8")
+    with db_session(db_path) as conn:
+        conn.executescript(schema_sql)
+        default_settings = [
+            ("reference_date", config.DEFAULT_REFERENCE_DATE.isoformat(), "Date de référence pour les calculs reproductibles"),
+            ("high_amount_threshold", str(config.DEFAULT_HIGH_AMOUNT_THRESHOLD), "Seuil gros montant (FCFA) pour revue humaine obligatoire"),
+            ("ai_confidence_threshold", str(config.DEFAULT_AI_CONFIDENCE_THRESHOLD), "Seuil de confiance IA minimal avant revue humaine"),
+            ("default_channel", config.DEFAULT_CHANNEL, "Canal simulé par défaut (WHATSAPP, SMS, EMAIL)"),
+        ]
+        conn.executemany(
+            "INSERT OR IGNORE INTO settings (key, value, description) VALUES (?, ?, ?)",
+            default_settings,
+        )
+
