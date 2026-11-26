@@ -2,11 +2,15 @@
 Couche d'acces aux donnees SQLite (Repositories) et jeu de donnees fictif de demonstration.
 Toutes les requetes sont parametrees pour garantir la securite et l'integrite.
 """
+import csv
 from datetime import date
+import io
 import json
 from pathlib import Path
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Optional
 import uuid
+
+import pandas as pd
 
 import config
 from database.db import db_atomic, db_session, init_db
@@ -14,7 +18,7 @@ from services.audit_logger import compute_audit_hash, log_event
 from services.ai_classifier import classifier_singleton
 from services.calculator import recalculate_all_invoices, recalculate_invoice
 from services.importer import import_portfolio_dict
-from services.reminder_engine import prepare_all_reminders
+from services.reminder_engine import prepare_all_reminders, prepare_reminder_for_invoice
 from services.security import mask_contact
 
 DEMO_PORTFOLIO_DATA: Dict[str, List[Dict[str, Any]]] = {
@@ -403,6 +407,9 @@ def get_dashboard_kpis(db_path: Path | None = None) -> Dict[str, Any]:
             "reference_date": settings.get("reference_date"),
             "high_amount_threshold": float(settings.get("high_amount_threshold", 500000)),
             "ai_confidence_threshold": float(settings.get("ai_confidence_threshold", 0.75)),
+            "default_channel": settings.get("default_channel", "WHATSAPP"),
+            "auto_prepare_reminders": settings.get("auto_prepare_reminders", "0") == "1",
+            "enable_pre_due_reminders": settings.get("enable_pre_due_reminders", "0") == "1",
             "emergency_stop": settings.get("emergency_stop", "0") == "1",
             "total_factures": int(inv_stats["total_factures"] or 0),
             "total_facture": float(inv_stats["total_facture"] or 0.0),
@@ -541,18 +548,24 @@ def update_business_settings(
     high_amount_threshold: float,
     ai_confidence_threshold: float,
     default_channel: str,
+    auto_prepare_reminders: bool = False,
+    enable_pre_due_reminders: bool = False,
     acteur: str = "ADMIN",
     db_path: Path | None = None,
 ) -> Dict[str, Any]:
     """Met a jour les parametres metier configurables, recalcule le portefeuille et trace la modification."""
     old_settings = get_settings(db_path)
+    auto_val = "1" if auto_prepare_reminders else "0"
+    pre_due_val = "1" if enable_pre_due_reminders else "0"
     old_summary = (
         f"ref={old_settings.get('reference_date')}, seuil={old_settings.get('high_amount_threshold')}, "
-        f"ia={old_settings.get('ai_confidence_threshold')}, canal={old_settings.get('default_channel')}"
+        f"ia={old_settings.get('ai_confidence_threshold')}, canal={old_settings.get('default_channel')}, "
+        f"auto={old_settings.get('auto_prepare_reminders', '0')}, pre_due={old_settings.get('enable_pre_due_reminders', '0')}"
     )
     new_summary = (
         f"ref={reference_date}, seuil={high_amount_threshold}, "
-        f"ia={ai_confidence_threshold}, canal={default_channel}"
+        f"ia={ai_confidence_threshold}, canal={default_channel}, "
+        f"auto={auto_val}, pre_due={pre_due_val}"
     )
     with db_atomic(db_path) as conn:
         for k, v in (
@@ -560,8 +573,13 @@ def update_business_settings(
             ("high_amount_threshold", str(high_amount_threshold)),
             ("ai_confidence_threshold", str(ai_confidence_threshold)),
             ("default_channel", default_channel),
+            ("auto_prepare_reminders", auto_val),
+            ("enable_pre_due_reminders", pre_due_val),
         ):
-            conn.execute("UPDATE settings SET value = ? WHERE key = ?", (v, k))
+            conn.execute(
+                "INSERT INTO settings (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+                (k, v),
+            )
         log_event(
             acteur=acteur,
             action="MODIFICATION_PARAMETRES_METIER",
@@ -574,11 +592,16 @@ def update_business_settings(
         )
 
     recalculated = recalculate_all_invoices(db_path=db_path)
+    auto_prepared = 0
+    if auto_prepare_reminders:
+        prep_res = prepare_all_reminders(db_path=db_path, acteur=acteur)
+        auto_prepared = sum(1 for r in prep_res if r.get("status") == "CREATED")
     save_app_state_cache(db_path=db_path)
     return {
         "status": "UPDATED",
         "settings": get_settings(db_path),
         "recalculated_count": len(recalculated),
+        "auto_prepared_reminders": auto_prepared,
     }
 
 
@@ -929,6 +952,13 @@ def override_invoice_ai_classification(
             conn=conn,
         )
 
+    # Boucle d'apprentissage actif en memoire : le classifieur apprend de la correction humaine
+    learning_info = {"retrained": False}
+    if inv["dernier_message_client"]:
+        learning_info = classifier_singleton.learn_from_human_feedback(
+            str(inv["dernier_message_client"]), cat_upper
+        )
+
     save_app_state_cache(db_path=db_path)
     return {
         "status": "AI_OVERRIDDEN_BY_HUMAN",
@@ -936,9 +966,287 @@ def override_invoice_ai_classification(
         "ancienne_categorie_ia": old_cat,
         "ancienne_confiance_ia": old_conf,
         "nouvelle_categorie_humaine": cat_upper,
+        "active_learning": learning_info,
         "acteur": acteur,
         "motif": motif,
     }
+
+
+def receive_simulated_incoming_message(
+    message_client: str,
+    canal: str = "WHATSAPP",
+    invoice_id: Optional[str] = None,
+    expediteur: Optional[str] = None,
+    acteur: str = "WEBHOOK_SIMULE",
+    db_path: Path | None = None,
+) -> Dict[str, Any]:
+    """
+    Simule la reception en temps reel d'un message client entrant (WhatsApp, SMS ou Email) sans aucune
+    connexion externe :
+    1. Rattache le message a la facture cible (par invoice_id ou par recherche du client expediteur).
+    2. Qualifie immediatement le message via le classifieur IA local explicable.
+    3. Si le message revele un litige, une demande d'echeancier, une annonce de paiement ou une incertitude,
+       bascule automatiquement toute relance en attente vers la file de revue humaine (EN_ATTENTE_VALIDATION).
+    4. Trace la reception et la decision dans le journal d'audit SHA-256.
+    """
+    msg_clean = message_client.strip()
+    if len(msg_clean) < 2:
+        raise ValueError("Le message client entrant ne peut pas etre vide.")
+    canal_upper = (canal or "WHATSAPP").strip().upper()
+
+    with db_atomic(db_path) as conn:
+        target_inv = None
+        if invoice_id and invoice_id.strip():
+            target_inv = conn.execute(
+                "SELECT * FROM invoices WHERE invoice_id = ?", (invoice_id.strip(),)
+            ).fetchone()
+        elif expediteur and expediteur.strip():
+            exp = expediteur.strip()
+            target_inv = conn.execute(
+                """
+                SELECT i.*
+                FROM invoices i
+                JOIN clients c ON i.client_id = c.client_id
+                WHERE c.client_id = ? OR c.contact_simule = ? OR c.nom_affiche LIKE ?
+                ORDER BY i.solde_restant DESC, i.jours_retard DESC
+                LIMIT 1
+                """,
+                (exp, exp, f"%{exp}%"),
+            ).fetchone()
+
+        if not target_inv:
+            raise ValueError(
+                f"Impossible de rattacher le message entrant : facture ({invoice_id}) ou expediteur ({expediteur}) introuvable."
+            )
+
+        resolved_inv_id = str(target_inv["invoice_id"])
+        old_msg = target_inv["dernier_message_client"]
+
+        row_ai = conn.execute("SELECT value FROM settings WHERE key = 'ai_confidence_threshold'").fetchone()
+        ai_threshold = float(row_ai["value"]) if row_ai else config.DEFAULT_AI_CONFIDENCE_THRESHOLD
+
+        # Mise a jour du message client et reinitialisation de ai_confiance pour forcer la qualification IA fraiche
+        conn.execute(
+            """
+            UPDATE invoices
+            SET dernier_message_client = ?,
+                ai_confiance = 0.0
+            WHERE invoice_id = ?
+            """,
+            (msg_clean, resolved_inv_id),
+        )
+        updated_inv = recalculate_invoice(resolved_inv_id, conn=conn)
+        ai_res = classifier_singleton.classify(msg_clean, confidence_threshold=ai_threshold)
+
+        suspended_reminders = 0
+        if ai_res["requiert_revue_humaine"]:
+            motif_bloc = f"Message {canal_upper} entrant [{ai_res['categorie']}] : {ai_res['motif_revue']}"
+            cur = conn.execute(
+                """
+                UPDATE reminders
+                SET statut_action = 'EN_ATTENTE_VALIDATION',
+                    requiert_revue_humaine = 1,
+                    motif_blocage = ?
+                WHERE invoice_id = ?
+                  AND statut_action IN ('BROUILLON', 'APPROUVEE')
+                """,
+                (motif_bloc, resolved_inv_id),
+            )
+            suspended_reminders = int(cur.rowcount)
+
+        log_event(
+            acteur=acteur,
+            action=f"RECEPTION_MESSAGE_{canal_upper}_SIMULE",
+            objet_type="FACTURE",
+            objet_id=resolved_inv_id,
+            ancienne_valeur=f"Message={old_msg or 'AUCUN'}",
+            nouvelle_valeur=f"IA={ai_res['categorie']} ({ai_res['confiance']:.0%}) | Revue={ai_res['requiert_revue_humaine']}",
+            motif=f"Message entrant ({canal_upper}) : {msg_clean[:100]}",
+            conn=conn,
+        )
+
+    # Si aucune relance n'existait encore sur cette facture et qu'un message sensible arrive, on prepare la tache en revue
+    existing_rem = list_reminders(db_path=db_path)
+    has_rem_for_inv = any(r["invoice_id"] == resolved_inv_id for r in existing_rem)
+    prepared_reminder = None
+    if not has_rem_for_inv and updated_inv["solde_restant"] > 0:
+        prep = prepare_reminder_for_invoice(resolved_inv_id, db_path=db_path, acteur=acteur)
+        if prep.get("status") == "CREATED":
+            prepared_reminder = prep.get("reminder_id")
+
+    save_app_state_cache(db_path=db_path)
+    return {
+        "status": "INCOMING_MESSAGE_PROCESSED",
+        "simulated": True,
+        "canal": canal_upper,
+        "invoice_id": resolved_inv_id,
+        "message_client": msg_clean,
+        "statut_calcule": updated_inv["statut_calcule"],
+        "ai_analysis": ai_res,
+        "routed_to_human_review": ai_res["requiert_revue_humaine"],
+        "suspended_existing_reminders": suspended_reminders,
+        "auto_created_review_reminder": prepared_reminder,
+    }
+
+
+def export_portfolio_data(db_path: Path | None = None) -> Dict[str, Any]:
+    """
+    Exporte l'ensemble du portefeuille recalcule et priorise au format JSON structure,
+    avec masquage systématique des coordonnees personnelles (contact_masque).
+    """
+    kpis = get_dashboard_kpis(db_path)
+    invoices = list_invoices(db_path=db_path)
+    sanitized_invoices = []
+    for inv in invoices:
+        item = dict(inv)
+        item.pop("contact_simule", None)
+        sanitized_invoices.append(item)
+    return {
+        "export_type": "BWAI_2026_PORTFOLIO_EXPORT",
+        "reference_date": kpis.get("reference_date"),
+        "kpis": kpis,
+        "invoices": sanitized_invoices,
+        "reminders": list_reminders(db_path=db_path),
+    }
+
+
+def export_portfolio_csv(db_path: Path | None = None) -> str:
+    """
+    Exporte la liste priorisee des factures du portefeuille au format CSV (compatible Excel),
+    avec coordonnees masquees (contact_masque) et explications du score.
+    """
+    invoices = list_invoices(db_path=db_path)
+    output = io.StringIO()
+    fieldnames = [
+        "invoice_id",
+        "client_id",
+        "nom_affiche",
+        "canal_prefere",
+        "contact_masque",
+        "date_emission",
+        "date_echeance",
+        "montant_initial",
+        "total_paye",
+        "total_avoirs",
+        "solde_restant",
+        "devise",
+        "jours_retard",
+        "statut_calcule",
+        "statut_paiement",
+        "score_priorite",
+        "eligible_relance",
+        "ai_categorie",
+        "ai_confiance",
+        "explication_score",
+    ]
+    writer = csv.DictWriter(output, fieldnames=fieldnames, extrasaction="ignore")
+    writer.writeheader()
+    for inv in invoices:
+        writer.writerow(inv)
+    return output.getvalue()
+
+
+def export_audit_logs_csv(db_path: Path | None = None) -> str:
+    """Exporte le journal d'audit complet avec ses empreintes SHA-256 au format CSV."""
+    logs = list_audit_logs(limit=1000, db_path=db_path)
+    output = io.StringIO()
+    fieldnames = [
+        "event_id",
+        "timestamp",
+        "acteur",
+        "action",
+        "objet_type",
+        "objet_id",
+        "ancienne_valeur",
+        "nouvelle_valeur",
+        "motif",
+        "prev_hash",
+        "entry_hash",
+    ]
+    writer = csv.DictWriter(output, fieldnames=fieldnames, extrasaction="ignore")
+    writer.writeheader()
+    for row in logs:
+        writer.writerow(row)
+    return output.getvalue()
+
+
+def generate_import_template_xlsx_bytes() -> bytes:
+    """
+    Genere en memoire un classeur Excel (.xlsx) modele a 6 feuilles (Clients, Factures, Paiements,
+    Avoirs, Echeanciers, Contestations) pret a etre telecharge et rempli par un gestionnaire PME.
+    """
+    template_sheets = {
+        "Clients": pd.DataFrame([
+            {
+                "client_id": "CLI-EX-01",
+                "nom_affiche": "Societe Exemple Cotonou SARL",
+                "contact_simule": "+22997001122",
+                "canal_prefere": "WHATSAPP",
+                "consentement_contact": 1,
+                "nb_factures_historiques": 4,
+                "nb_retards_historiques": 1,
+            },
+            {
+                "client_id": "CLI-EX-02",
+                "nom_affiche": "Pharmacie Exemple Porto-Novo",
+                "contact_simule": "compta@exemple.bj",
+                "canal_prefere": "EMAIL",
+                "consentement_contact": 1,
+                "nb_factures_historiques": 3,
+                "nb_retards_historiques": 0,
+            },
+        ]),
+        "Factures": pd.DataFrame([
+            {
+                "invoice_id": "FAC-EX-001",
+                "client_id": "CLI-EX-01",
+                "date_emission": "2026-01-15",
+                "date_echeance": "2026-02-15",
+                "montant_initial": 250000,
+                "devise": "FCFA",
+                "dernier_message_client": "Desole pour ce retard nous reglons cette semaine",
+            },
+            {
+                "invoice_id": "FAC-EX-002",
+                "client_id": "CLI-EX-02",
+                "date_emission": "2026-02-01",
+                "date_echeance": "2026-03-01",
+                "montant_initial": 180000,
+                "devise": "FCFA",
+                "dernier_message_client": "",
+            },
+        ]),
+        "Paiements": pd.DataFrame([
+            {
+                "payment_id": "PAY-EX-01",
+                "invoice_id": "FAC-EX-001",
+                "date_paiement": "2026-02-20",
+                "montant": 100000,
+                "reference_fictive": "MOMO-DEMO-EX01",
+            }
+        ]),
+        "Avoirs": pd.DataFrame([
+            {
+                "credit_note_id": "AV-EX-01",
+                "invoice_id": "FAC-EX-001",
+                "date_avoir": "2026-02-22",
+                "montant": 20000,
+                "motif": "Remise commerciale",
+            }
+        ]),
+        "Echeanciers": pd.DataFrame(
+            columns=["plan_id", "invoice_id", "date_prochaine_echeance", "montant_prevu", "statut"]
+        ),
+        "Contestations": pd.DataFrame(
+            columns=["dispute_id", "invoice_id", "motif", "date_ouverture", "statut"]
+        ),
+    }
+    buf = io.BytesIO()
+    with pd.ExcelWriter(buf, engine="openpyxl") as writer:
+        for sheet_name, df in template_sheets.items():
+            df.to_excel(writer, sheet_name=sheet_name, index=False)
+    return buf.getvalue()
+
 
 
 

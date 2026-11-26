@@ -1,72 +1,104 @@
-# Fiche IA — Classification des messages clients et routage vers la revue humaine
+# Fiche IA : Classification des messages clients et orientation vers la revue humaine
 
-**Projet** : Recouvrement automatique des factures impayées (Cas pratique 1 — BWAI 2026)  
+**Projet** : Recouvrement automatique des factures impayées (Cas pratique 1, BWAI 2026)  
+**Équipe** : AlPha coDers  
+**Membres** :
+- DINLA Marcel
+- ABDOULAYE Nydal
+- KINHOU Ange
+- FAGBEGNON Dimitri
+
 **Composant** : `services/ai_classifier.py` (`ClientMessageClassifier`)  
-**Commande de reproduction de l'évaluation** : `python -m services.ai_classifier` ou `pytest tests/test_step8_ai_evaluation.py`
+**Commande de reproduction** : `python -m services.ai_classifier` ou `pytest tests/test_step8_ai_evaluation.py`
 
----
+## 1. Rôle exact de l'IA et séparation avec les calculs métier
 
-## 1. Modèle, version et justification du choix technique
+Dans ce prototype, l'intelligence artificielle a un rôle volontairement limité et bien encadré : elle lit le dernier message envoyé par un client (WhatsApp, SMS ou courriel) pour repérer s'il contient une contestation, une demande de délai, une annonce de paiement ou un doute qui nécessite l'intervention d'un gestionnaire humain.
 
-- **Architecture** : Pipeline `scikit-learn` (>= 1.5) combinant :
-  1. `TfidfVectorizer(ngram_range=(1, 2), lowercase=True, strip_accents="unicode")` — extraction des unigrammes et bigrammes normalisés (insensible aux accents omis dans les SMS/WhatsApp).
-  2. `LogisticRegression(C=2.0, class_weight="balanced", random_state=42, max_iter=1000)` — classifieur linéaire probabiliste multi-classes à pondération équilibrée.
-- **Justification métier et technique** :
-  - **100 % hors-ligne et sans coût d'API** : adapté aux PME béninoises à connectivité variable (aucune dépendance cloud ni clé API externe).
-  - **Déterministe et reproductible** (`random_state=42`) : temps d'entraînement < 50 ms, inférence < 1 ms par message.
-  - **Séparation stricte Calculs / IA** : conformément au TDR, ce modèle **ne calcule aucun solde, aucun retard et ne décide d'aucun envoi**. Il sert exclusivement de filet de sécurité pour qualifier l'intention du dernier message client et orienter les dossiers sensibles ou incertains vers la **file de revue humaine**.
+Conformément aux termes de référence :
+- l'IA **ne calcule aucun solde, aucun retard et aucun score de priorité** (ces calculs sont faits par des formules déterministes exactes dans `services/calculator.py` et `services/prioritizer.py`) ;
+- l'IA **ne déclenche jamais un envoi toute seule** : son rôle est d'agir comme un filet de sécurité qui oriente les dossiers sensibles ou incertains vers la file de revue humaine.
 
----
+## 2. Modèle, version et justification du choix technique
 
-## 2. Tâche et définition des 4 classes
+### Architecture retenue
+Le classifieur repose sur `scikit-learn` (testé en version 1.9.1) et enchaîne quatre étapes légères :
+1. **Normalisation des abréviations SMS (`normalize_benin_sms`)** : remplace les abréviations fréquentes (`bjr`, `stp`, `pb`, `livr`, `fact`, `ech`, `vir`, `chq`, `rglt`, `celtiis`) par leur forme complète avant vectorisation.
+2. **Vectorisation `TfidfVectorizer(ngram_range=(1, 2), lowercase=True, strip_accents="unicode")`** : extrait les mots isolés et les paires de mots en ignorant les différences d'accents fréquentes sur téléphone.
+3. **Classification `LogisticRegression(C=2.0, class_weight="balanced", random_state=42, max_iter=1000)`** : modèle linéaire probabiliste équilibré entre les 4 classes.
+4. **Calibration de température du Softmax ($T = 0,55$)** : redresse les probabilités produites par le modèle sans jamais changer la classe arrivée en tête, afin d'obtenir des scores de confiance lisibles (80 % à 95 % sur les phrases claires) tout en maintenant toutes les erreurs sous le seuil de revue humaine.
 
-Le modèle classe chaque message client (SMS, WhatsApp, courriel) parmi 4 intentions métier :
+### Pourquoi ce choix plutôt qu'un grand modèle de langage (LLM) ?
+- **Fonctionnement 100 % hors-ligne et gratuit** : aucune clé API payante, aucun serveur distant et aucune connexion Internet ne sont nécessaires.
+- **Rapidité et légèreté** : l'entraînement complet prend moins de 40 millisecondes sur un processeur standard, et l'analyse d'un message prend moins d'une milliseconde.
+- **Reproductibilité et explicabilité** : à données identiques (`random_state=42`), le résultat est toujours identique et l'application peut afficher les mots exacts qui ont motivé la décision.
 
-| Classe | Définition métier | Action du moteur de relance |
+### Comparaison expérimentale avec les autres familles de modèles (Arbres, Forêts, Boosting, Naive Bayes, SVM et Règles)
+Pour justifier le choix de la régression logistique sans biais, six familles d'algorithmes d'apprentissage automatique (ainsi que la méthode de référence par mots-clés) ont été comparées sur les mêmes vecteurs TF-IDF :
+- d'abord par **validation croisée stratifiée à 5 plis (`StratifiedKFold`) sur les 250 messages de `data/train.csv`** ;
+- puis sur **les 100 messages inédits du jeu de test séparé `data/test.csv`**.
+
+| Famille de modèle | F1-macro (Validation croisée 5 plis sur `train.csv`) | Exactitude (Validation croisée 5 plis) | Exactitude sur `test.csv` (100 cas) | F1-macro sur `test.csv` | Rappel sur la classe `LITIGE` (`test.csv`) |
+|---|---:|---:|---:|---:|---:|
+| **LogisticRegression (C=2.0, balanced) [Retenu]** | **79,74 % (± 2,80 %)** | **81,60 %** | **89,00 %** | **89,85 %** | **95,83 % (23/24)** |
+| LinearSVC + Calibration de Platt | 79,73 % (± 3,37 %) | 81,60 % | 89,00 % | 89,85 % | 95,83 % (23/24) |
+| Forêt aléatoire (RandomForest, 100 arbres) | 65,66 % (± 4,66 %) | 65,20 % | 77,00 % | 77,27 % | 54,17 % (13/24) |
+| Gradient Boosting (100 arbres) | 64,76 % (± 4,70 %) | 64,80 % | 72,00 % | 72,36 % | 54,17 % (13/24) |
+| Multinomial Naive Bayes (alpha=0.5) | 67,36 % (± 3,71 %) | 72,00 % | 69,00 % | 70,68 % | 100,00 % (sur-prédit LITIGE) |
+| Arbre de décision (DecisionTree, profondeur 15) | 54,99 % (± 6,91 %) | 54,80 % | 62,00 % | 62,73 % | 66,67 % (16/24) |
+| Règles par mots-clés (Baseline sans IA) | Non applicable | Non applicable | 36,00 % | 35,80 % | 79,17 % (19/24) |
+
+### Pourquoi les modèles d'arbres (Decision Tree, Random Forest, Gradient Boosting) sont-ils moins performants ici ?
+1. **Nature très creuse du texte court (TF-IDF)** : le vocabulaire d'entraînement compte plus de 1 500 mots et paires de mots, mais un SMS ou message WhatsApp client ne contient en moyenne que 10 à 15 mots. Un arbre de décision teste un seul mot à chaque embranchement : si le client utilise un synonyme absent des premiers nœuds de l'arbre, le message tombe dans la branche par défaut. C'est pourquoi l'arbre de décision plafonne à **62 %** d'exactitude et la forêt aléatoire à **77 %** (avec seulement **54,17 %** des litiges détectés directement).
+2. **Avantage des modèles linéaires sur le texte** : la régression logistique et le SVM linéaire évaluent simultanément tous les mots présents dans la phrase en additionnant leurs poids respectifs (**89 %** d'exactitude et **95,83 %** de détection directe des litiges, soit **+12 à +27 points** de mieux que les modèles à base d'arbres).
+3. **Pourquoi préférer `LogisticRegression` à `LinearSVC`** : les deux obtiennent 89,00 % sur le jeu de test, mais la régression logistique présente un écart-type plus faible entre les 5 plis d'entraînement (`± 2,80 %` contre `± 3,37 %`), fournit directement des probabilités calibrables par température sans double validation croisée interne et permet d'extraire immédiatement la contribution exacte de chaque mot pour l'utilisateur.
+
+## 3. Tâche et définition des quatre classes
+
+Chaque message client est classé dans l'une des quatre catégories suivantes :
+
+| Catégorie | Signification métier | Décision prise par le système |
 |---|---|---|
-| `LITIGE` | Contestation de la facture (montant, livraison incomplète, produit endommagé, prestation non terminée). | **Blocage automatique** → File de revue humaine |
-| `DEMANDE_ECHEANCIER` | Reconnaissance de la dette avec demande d'étalement, d'acompte ou de report d'échéance. | **Blocage automatique** → File de revue humaine |
-| `ANNONCE_PAIEMENT` | Annonce d'un règlement déjà effectué (Mobile Money, MTN MoMo, Moov/Flooz, virement, espèces) ou imminent. | **Blocage automatique** → File de revue humaine |
-| `RETARD_SIMPLE` | Excuse ou reconnaissance d'oubli sans contestation ni demande d'échéancier. | Envoi autorisé **uniquement si** confiance $\ge 0{,}75$ (sinon revue humaine) |
+| `LITIGE` | Le client conteste la facture (marchandise abîmée, erreur de prix, livraison incomplète). | Blocage de la relance automatique et mise en file de revue humaine. |
+| `DEMANDE_ECHEANCIER` | Le client reconnaît la dette mais demande un paiement en plusieurs fois ou un report. | Blocage de la relance automatique et mise en file de revue humaine. |
+| `ANNONCE_PAIEMENT` | Le client affirme avoir déjà payé (Mobile Money, virement, espèces, chèque). | Blocage de la relance automatique et mise en file de revue humaine pour vérification comptable. |
+| `RETARD_SIMPLE` | Le client s'excuse d'un simple oubli ou retard sans contester ni demander d'échéancier. | Relance standard autorisée uniquement si la confiance dépasse le seuil et qu'aucun garde-fou n'est déclenché. |
 
----
+## 4. Données utilisées et séparation stricte des jeux
 
-## 3. Données et séparation stricte des jeux (Train / Hold-out Test)
+Tous les messages sont **entièrement fictifs** et ont été rédigés à la main en français contextualisé au Bénin (vocabulaire Mobile Money, commerce, livraison, cas francs et cas ambigus). La méthode complète est détaillée dans `data/methode_generation_jeux.md`.
 
-Les données sont **100 % synthétiques**, rédigées manuellement en français avec les réalités du recouvrement au Bénin (montants en FCFA, MTN MoMo, Moov Money, Flooz, SBEE, Yango, livraisons, abréviations SMS, tournures locales et négations). Aucune donnée personnelle réelle n'est utilisée. La méthodologie complète est documentée dans `data/methode_generation_jeux.md`.
+| Jeu de données | Fichier | Nombre de messages | Répartition par classe | Rôle |
+|---|---|---:|---|---|
+| **Entraînement** | `data/train.csv` | **250** | 100 `LITIGE`, 50 `DEMANDE_ECHEANCIER`, 50 `ANNONCE_PAIEMENT`, 50 `RETARD_SIMPLE` | Apprentissage du vocabulaire TF-IDF et des poids du modèle. |
+| **Test (Hold-Out)** | `data/test.csv` | **100** | 24 `LITIGE`, 26 `DEMANDE_ECHEANCIER`, 32 `ANNONCE_PAIEMENT`, 18 `RETARD_SIMPLE` (dont 12 cas ambigus) | Évaluation finale sur des messages jamais vus à l'entraînement. |
 
-| Jeu de données | Fichier | Taille | Répartition par classe | Cas ambigus (`ambigu=oui`) | Chevauchement Train/Test |
-|---|---|---|---|---|---|
-| **Entraînement** | `data/train.csv` | **250** | `LITIGE`: 100, `DEMANDE_ECHEANCIER`: 50, `ANNONCE_PAIEMENT`: 50, `RETARD_SIMPLE`: 50 | 29 (11,6 %) | **0 message commun** (0,0 %) |
-| **Test Hold-out** | `data/test.csv` | **100** | `ANNONCE_PAIEMENT`: 32, `DEMANDE_ECHEANCIER`: 26, `LITIGE`: 24, `RETARD_SIMPLE`: 18 | 12 (12,0 %) | **0 message commun** (0,0 %) |
+Un test automatisé (`test_train_and_test_csv_no_data_leakage`) vérifie qu'aucun message n'est commun aux deux fichiers (**0 doublon** entre `train.csv` et `test.csv`).
 
-Le jeu `data/test.csv` a été construit après le jeu d'entraînement avec des contextes métiers distincts (pharmacie, tailleur, traiteur, SBEE, coopérative, frais de scolarité) et des plages de montants différentes pour éviter toute fuite de données.
+## 5. Résultats sur le jeu de test séparé (100 messages)
 
----
+### Comparaison globale et distinction entre exactitude statistique et sécurité métier
 
-## 4. Méthode d'évaluation et résultats quantitatifs (IA seule vs Baseline)
+| Indicateur mesuré sur `data/test.csv` (100 messages) | Règles par mots-clés (Référence) | Modèle IA retenu | Gain apporté |
+|---|---:|---:|---:|
+| **Exactitude globale sur les 4 classes (Accuracy)** | 36,00 % | **89,00 %** | **+53,00 pts** |
+| **F1-score Macro (moyenne équilibrée des 4 classes)** | 35,80 % | **89,85 %** | **+54,05 pts** |
+| **Exactitude sur messages standards (88 cas)** | 37,50 % | **88,64 %** | +51,14 pts |
+| **Exactitude sur messages ambigus (12 cas)** | 25,00 % | **91,67 %** | +66,67 pts |
+| **Rappel de sécurité Métier (cas sensibles envoyés en revue)** | 41,46 % | **100,00 % (82 / 82)** | **0 oubli critique** |
 
-### 4.1 Comparaison globale sur `data/test.csv` (100 messages inédits)
+En recouvrement, les trois classes sensibles (`LITIGE`, `DEMANDE_ECHEANCIER`, `ANNONCE_PAIEMENT`) conduisent toutes à la même action protectrice : **suspendre l'envoi automatique et demander une vérification humaine**. Sur cet objectif métier, le système intercepte **100 % des 82 dossiers sensibles (0 faux négatif critique)**.
 
-| Approche évaluée | Accuracy globale | F1-score Macro | F1-score Pondéré |
-|---|---|---|---|
-| Baseline déterministe par mots-clés | 36,00 % | 0,36 | 0,36 |
-| **Modèle IA (`TF-IDF + LogisticRegression`)** | **89,00 %** (+53,0 pts) | **0,90** (+0,54) | **0,89** (+0,53) |
+### Résultats détaillés par classe
 
-- **Accuracy sur messages standards (`ambigu=non`, 88 cas)** : **88,64 %** (78 / 88)
-- **Accuracy sur messages ambigus (`ambigu=oui`, 12 cas)** : **91,67 %** (11 / 12)
+| Classe | Précision | Rappel (Recall) | F1-score | Nombre de cas |
+|---|---:|---:|---:|---:|
+| `LITIGE` | 76,67 % | **95,83 %** | 0,8519 | 24 |
+| `DEMANDE_ECHEANCIER` | 92,31 % | **92,31 %** | 0,9231 | 26 |
+| `ANNONCE_PAIEMENT` | 92,59 % | 78,12 % | 0,8475 | 32 |
+| `RETARD_SIMPLE` | **100,00 %** | 94,44 % | 0,9714 | 18 |
 
-### 4.2 Métriques détaillées par classe sur `data/test.csv`
-
-| Classe | Précision | Rappel (Recall) | F1-score | Support (nb messages) |
-|---|---|---|---|---|
-| `LITIGE` | 0,7667 (76,7 %) | **0,9583 (95,8 %)** | 0,8519 | 24 |
-| `DEMANDE_ECHEANCIER` | 0,9231 (92,3 %) | **0,9231 (92,3 %)** | 0,9231 | 26 |
-| `ANNONCE_PAIEMENT` | 0,9259 (92,6 %) | 0,7812 (78,1 %) | 0,8475 | 32 |
-| `RETARD_SIMPLE` | **1,0000 (100,0 %)** | 0,9444 (94,4 %) | 0,9714 | 18 |
-| **Moyenne Macro** | **0,9039** | **0,9018** | **0,8985** | **100** |
-
-### 4.3 Matrice de confusion sur `data/test.csv`
+### Matrice de confusion sur `data/test.csv`
 
 | Classe réelle \ Classe prédite | `LITIGE` | `DEMANDE_ECHEANCIER` | `ANNONCE_PAIEMENT` | `RETARD_SIMPLE` |
 |---|---:|---:|---:|---:|
@@ -75,61 +107,40 @@ Le jeu `data/test.csv` a été construit après le jeu d'entraînement avec des 
 | **`ANNONCE_PAIEMENT` (32)** | 6 | 1 | **25** | **0** |
 | **`RETARD_SIMPLE` (18)** | 0 | 0 | 1 | **17** |
 
----
+La dernière colonne (`RETARD_SIMPLE`) contient **0, 0, 0** pour les trois classes sensibles : aucun litige, aucune demande d'échéancier et aucune annonce de paiement n'est confondu avec un simple retard.
 
-## 5. Séparation des résultats IA, calibration du seuil et garanties Métier
+## 6. Gestion de l'incertitude, calibration du seuil et reprise humaine
 
-Le TDR impose de présenter séparément la performance brute de l'IA, la calibration du seuil de confiance et la sécurité du parcours métier :
+### Règle de routage à quatre filets de sécurité
+Un dossier est envoyé en revue humaine obligatoire dès qu'au moins une des conditions suivantes est remplie :
+1. **Message hors vocabulaire (`hors_vocabulaire = True`)** : aucun mot du message n'est reconnu dans le lexique appris (par exemple un message rédigé uniquement en fon, yoruba ou mina).
+2. **Catégorie sensible** : le modèle prédit `LITIGE`, `DEMANDE_ECHEANCIER` ou `ANNONCE_PAIEMENT`.
+3. **Garde-fou lexical sur `RETARD_SIMPLE`** : même si le modèle prédit `RETARD_SIMPLE`, la présence d'une négation (*« ne … pas »*, *« jamais »*, *« aucun »*) ou d'un montant chiffré (*`25000`*, *`fcfa`*, *`tranches`*, *`fois`*) impose une revue humaine.
+4. **Confiance inférieure au seuil configuré** : la probabilité calibrée est sous le seuil (`0,75` par défaut, ajustable dans les paramètres).
 
-### 5.1 Règle de routage à 3 niveaux (`services/ai_classifier.py`)
+### Courbe de calibration du seuil (avec Temperature Scaling $T = 0,55$)
 
-Un dossier est envoyé en revue humaine obligatoire (`requiert_revue_humaine = True`) dès qu'au moins une des conditions suivantes est vraie :
-1. **Détection hors-vocabulaire (`hors_vocabulaire = True`)** : si aucun terme ou bigramme du message client n'appartient au lexique d'entraînement (`nb_termes_reconnus == 0`, ex. message en langue locale fon/yoruba/mina ou argot inédit), le message est immédiatement routé en revue humaine.
-2. **Catégorie sensible** : la classe prédite est `LITIGE`, `DEMANDE_ECHEANCIER` ou `ANNONCE_PAIEMENT`.
-3. **Garde-fou lexical critique sur `RETARD_SIMPLE`** (`detect_critical_patterns`) : même si le modèle prédit `RETARD_SIMPLE`, toute présence d'une **négation** (*« ne … pas »*, *« jamais »*, *« aucun »*, *« pas reçu »*) ou d'un **montant / échéance chiffré** (*`25000`*, *`fcfa`*, *`tranches`*, *`fois`*) force la revue humaine.
-4. **Seuil de confiance IA** : le score $\max_c P(c \mid x)$ est strictement inférieur au seuil configuré (`ai_confidence_threshold`).
+| Seuil $\tau$ | Couverture IA ($P_{\text{cal}} \ge \tau$) | Précision IA au-dessus du seuil | Erreurs IA non filtrées ($P_{\text{cal}} \ge \tau$) | Erreurs IA interceptées ($P_{\text{cal}} < \tau$) | Faux négatifs critiques envoyés auto |
+|---:|---:|---:|---:|---:|---:|
+| `0.35` | 97,0 % | 88,66 % | 11 / 11 | 0 / 11 | **0** |
+| `0.45` | 88,0 % | 90,91 % | 8 / 11 | 3 / 11 | **0** |
+| `0.55` | 76,0 % | 93,42 % | 5 / 11 | 6 / 11 | **0** |
+| `0.65` | 56,0 % | 98,21 % | 1 / 11 | 10 / 11 | **0** |
+| **`0.70` (seuil d'erreur nulle)** | **50,0 %** | **100,00 %** | **0 / 11** | **11 / 11 (100 %)** | **0** |
+| **`0.75` (défaut prudent)** | **40,0 %** | **100,00 %** | **0 / 11** | **11 / 11 (100 %)** | **0** |
 
-### 5.1 bis Explicabilité locale (White-Box AI) et Reprise Humaine (`POST /api/invoices/{id}/ai-override`)
+La confiance maximale observée parmi les 11 erreurs du jeu de test est de **66,4 %** (avec une entropie moyenne d'incertitude élevée de **0,76 / 1,00**). Dès le seuil **0,70** (et au seuil par défaut **0,75**), **100 % des erreurs du modèle sont interceptées** par le filtre de confiance.
 
-- **Attribution explicable par terme (`termes_explicatifs`)** : pour chaque message classé, le pipeline calcule en $< 0{,}2\text{ ms}$ la contribution linéaire exacte $w_{c,j} \times \text{TF-IDF}_j(x)$ de chaque mot/bigramme présent dans le message, ainsi que la distribution complète des probabilités (`probabilites_classes`) et la marge d'incertitude `marge_top1_top2 = P(c_1) - P(c_2)`.
-- **Reprise humaine persistante** : via la fiche dossier (`POST /api/invoices/{invoice_id}/ai-override`), un opérateur humain peut confirmer ou corriger la qualification IA d'un message client ; la décision humaine (`ai_confiance = 1.0`) est préservée lors des recalculs ultérieurs et tracée dans le journal SHA-256 (`REPRISE_HUMAINE_QUALIFICATION_IA`).
+### Explicabilité et reprise humaine avec apprentissage actif
+- Sur chaque dossier, l'interface affiche les **termes clés du message** qui ont pesé dans le calcul, la probabilité des 4 classes, la marge d'écart et l'entropie d'incertitude.
+- Le bouton **Reprise humaine (Requalifier l'IA)** permet à un opérateur de corriger la catégorie d'un message. Cette décision est tracée dans le journal SHA-256, conservée lors des recalculs suivants, et intégrée en mémoire par le modèle qui se ré-entraîne immédiatement.
 
-### 5.2 Calibration du seuil : Courbe Couverture / Erreur sur `data/test.csv`
+## 7. Analyse des erreurs observées et limites connues
 
-Plutôt que de choisir un seuil arbitraire, la méthode `calibrate_thresholds()` balaie la grille de seuils de `0.35` à `0.75` sur les 100 messages *hold-out* :
+### Pourquoi 6 annonces de paiement sont-elles classées en litige ?
+Ces 6 messages (comme `T055` : *« je passe au cabinet demain avant midi avec le chèque »* ou `T060` : *« mon pharmacien doit encore me verser sa part »*) emploient des tournures peu fréquentes dans les 50 exemples d'`ANNONCE_PAIEMENT` de l'entraînement. Comme la classe `LITIGE` compte 100 exemples au vocabulaire plus large, le modèle penche vers `LITIGE` avec une faible confiance (entre 46 % et 66 %). Sur le plan métier, cette hésitation est sans danger : dans les deux cas, la relance est suspendue et présentée au gestionnaire.
 
-| Seuil $\tau$ | Couverture IA ($P_{\max} \ge \tau$) | Précision IA au-dessus de $\tau$ | Erreurs IA non filtrées ($P_{\max} \ge \tau$) | Erreurs IA interceptées ($P_{\max} < \tau$) | Taux de revue humaine Métier | Faux négatifs critiques envoyés auto |
-|---:|---:|---:|---:|---:|---:|---:|
-| `0.35` | 90,0 % (90/100) | 91,11 % | 8 / 11 | 3 / 11 | 87,0 % | **0** |
-| `0.40` | 80,0 % (80/100) | 91,25 % | 7 / 11 | 4 / 11 | 88,0 % | **0** |
-| `0.45` | 60,0 % (60/100) | 98,33 % | 1 / 11 | 10 / 11 | 88,0 % | **0** |
-| **`0.50` (optimal IA)** | **50,0 % (50/100)** | **100,00 %** | **0 / 11** | **11 / 11 (100 %)** | **91,0 %** | **0** |
-| `0.55` | 38,0 % (38/100) | 100,00 % | 0 / 11 | 11 / 11 (100 %) | 94,0 % | **0** |
-| `0.65` | 12,0 % (12/100) | 100,00 % | 0 / 11 | 11 / 11 (100 %) | 98,0 % | **0** |
-| **`0.75` (défaut prudent)** | **2,0 % (2/100)** | **100,00 %** | **0 / 11** | **11 / 11 (100 %)** | **100,0 %** | **0** |
-
-**Justification mathématique du seuil** :
-- La confiance maximale observée parmi les 11 erreurs du modèle sur `test.csv` est **`0.459`** (`T036`).
-- Dès **$\tau = 0{,}50$**, la précision sur les prédictions au-dessus du seuil atteint **100,0 % (50/50)** avec **50 % de couverture IA** et **0 erreur non filtrée**.
-- Le seuil par défaut configuré dans l'application (`0.75`) correspond à un **mode de prudence maximale** (marge de sécurité de $+0{,}25$ au-dessus du point d'erreur nulle `0.50`), modifiable par le gestionnaire dans les paramètres selon qu'il privilégie la revue systématique (`0.75`) ou le filtrage automatique des excuses simples (`0.50`).
-
-### 5.3 Résultat sur la sécurité métier (0 faux négatif critique)
-
-- Sur les **82 messages sensibles** du jeu de test (`24 LITIGE + 26 DEMANDE_ECHEANCIER + 32 ANNONCE_PAIEMENT`), **0 message** n'est prédit en `RETARD_SIMPLE` (dernière colonne de la matrice de confusion : `0, 0, 0`).
-- **100 % des cas sensibles (82 / 82)** et **100 % des erreurs de classification (11 / 11)** sont routés vers un gestionnaire humain avant toute relance.
-
----
-
-## 6. Analyse des erreurs observées (11 cas sur 100)
-
-- **6 messages `ANNONCE_PAIEMENT` classés en `LITIGE`** (ex. `T055`, `T060`, `T061`, `T065`, `T072`, `T080`) : ces messages utilisent un vocabulaire inhabituel ou formel (*« je passe au cabinet demain avant midi avec le chèque »*, *« mon pharmacien doit encore me verser sa part »*). Le poids `class_weight="balanced"` combiné à la diversité lexicale de la classe `LITIGE` (100 exemples variés à l'entraînement) attire les phrases hors vocabulaire vers `LITIGE` avec une faible confiance ($0{,}34$ à $0{,}45$). C'est un comportement conservateur souhaitable en recouvrement : dans le doute, le dossier est bloqué pour vérification humaine.
-- **1 message `LITIGE` classé en `DEMANDE_ECHEANCIER`** (`T010`, confiance `0.348`) : *« Les 15 sacs de ciment livrés sur le chantier sont en partie durcis. Je paierai après inspection par un expert »*. La structure *« Je paierai après… »* ressemble à une promesse de report, mais le faible score de confiance ($34{,}8\% < 75\%$) et la classe prédite maintiennent le dossier en revue humaine.
-
----
-
-## 7. Limites connues et conditions d'expérimentation réelle
-
-- **Corpus synthétique de taille modeste (350 messages au total)** : bien que contextualisé au Bénin, il ne remplace pas un corpus de messages WhatsApp/SMS réels annotés par plusieurs gestionnaires (calcul d'un accord inter-annotateurs Kappa de Cohen requis avant mise en production).
-- **Modèle sac-de-mots (`TF-IDF 1-2 grammes`)** : sensible aux formulations inédites sans mots-clés partagés avec l'entraînement et limité sur les langues locales (fon, yoruba, mina) non représentées dans `train.csv`.
-- **Calibration des probabilités** : sur 4 classes avec régression logistique régularisée, la probabilité maximale moyenne d'une bonne prédiction est de `0.52`. Le seuil `0.75` agit donc comme un filtre très prudent qui privilégie la validation humaine sur l'automatisation aveugle.
-
+### Limites du modèle et conditions pour une mise en production
+1. **Taille et nature fictive du corpus** : 350 messages rédigés à la main ne remplacent pas plusieurs milliers de vrais messages WhatsApp et SMS collectés en entreprise et annotés par plusieurs gestionnaires.
+2. **Modèle basé sur les mots et paires de mots** : bien qu'enrichi d'un normaliseur d'abréviations SMS, un modèle TF-IDF ne comprend pas le sens profond d'une phrase totalement inédite ni l'ironie.
+3. **Langues nationales** : les messages rédigés entièrement en fon, yoruba, bariba ou mina ne sont pas traduits. Le système les détecte comme « hors vocabulaire » (0 terme connu) et les confie systématiquement à un opérateur humain.

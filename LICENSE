@@ -1,0 +1,55 @@
+MIT License
+
+Copyright (c) 2026 Équipe AlPha coDers — DINLA Marcel, ABDOULAYE Nydal, KINHOU Ange, FAGBEGNON Dimitri (BWAI 2026)
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+
+
+DÉCLARATION DES COMPOSANTS PRÉEXISTANTS, BIBLIOTHÈQUES ET DONNÉES (TDR SECTION 6)
+
+1. Code source et gabarits de l'application
+L'ensemble du code métier, des routes API, des gabarits HTML/CSS/JavaScript et des 50 tests
+automatisés a été développé spécifiquement pour le prototype du Cas pratique 1 du Hackathon
+BWAI 2026 et est placé sous licence MIT ci-dessus.
+
+2. Jeux de données et modèle d'intelligence artificielle
+- Portefeuille de démonstration (data/demo_portfolio.xlsx) : données 100 % fictives créées
+  pour la démonstration (licence CC0 / Domaine public).
+- Corpus de messages clients (data/train.csv : 250 messages ; data/test.csv : 100 messages) :
+  phrases entièrement fictives rédigées à la main en français contextualisé au Bénin, sans
+  aucune donnée personnelle réelle (licence CC0 / Domaine public).
+- Modèle IA : entraîné localement à partir de zéro sur data/train.csv via scikit-learn. Aucun
+  modèle pré-entraîné propriétaire ni aucune API externe payante n'est utilisé.
+
+3. Bibliothèques open source tierces utilisées
+- Python Standard Library (sqlite3, decimal, hashlib, threading, csv, json) : PSF License
+- FastAPI (>= 0.111.0, testé 0.165.0) : MIT License
+- Starlette (testé 1.10.0) : BSD-3-Clause License
+- Uvicorn (>= 0.30.0, testé 0.54.0) : BSD-3-Clause License
+- Jinja2 (>= 3.1.4, testé 3.1.6) : BSD-3-Clause License
+- Pydantic (>= 2.7.0, testé 2.14.4) : MIT License
+- python-multipart (>= 0.0.9, testé 0.0.34) : Apache-2.0 License
+- python-dotenv (>= 1.0.1, testé 1.2.4) : BSD-3-Clause License
+- pandas (>= 2.2.0, testé 3.1.1) : BSD-3-Clause License
+- openpyxl (>= 3.1.2, testé 3.1.5) : MIT License
+- scikit-learn (>= 1.5.0, testé 1.9.1) : BSD-3-Clause License
+- NumPy / SciPy (testés 2.5.5 / 1.18.1) : BSD-3-Clause License
+- pytest (>= 8.2.0, testé 9.2.0) : MIT License
+- httpx (>= 0.27.0, testé 0.28.1) : BSD-3-Clause License
+

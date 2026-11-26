@@ -81,6 +81,8 @@ def init_db(db_path: Path | None = None) -> None:
             ("high_amount_threshold", str(config.DEFAULT_HIGH_AMOUNT_THRESHOLD), "Seuil gros montant (FCFA) pour revue humaine obligatoire"),
             ("ai_confidence_threshold", str(config.DEFAULT_AI_CONFIDENCE_THRESHOLD), "Seuil de confiance IA minimal avant revue humaine"),
             ("default_channel", config.DEFAULT_CHANNEL, "Canal simulé par défaut (WHATSAPP, SMS, EMAIL)"),
+            ("auto_prepare_reminders", "0", "Préparation automatique des relances après import ou modification (0 ou 1)"),
+            ("enable_pre_due_reminders", "0", "Activer les rappels courtois pré-échéance J-3 à J-0 (0 ou 1)"),
             ("emergency_stop", "0", "Interrupteur d'arrêt d'urgence (1 = bloque tout envoi simulé)"),
             ("require_auth", "1", "Mode authentification stricte sur toutes les routes (0 ou 1)"),
             ("allow_audit_reset", "0", "Autorisation interne temporaire de purge lors du reset de démo"),

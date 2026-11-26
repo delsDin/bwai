@@ -56,6 +56,10 @@
         </div>
         <div class="action-group">
             <button type="button" class="btn btn-outline"
+                    onclick="document.getElementById('dialog-incoming-msg').showModal()">
+                Simuler message WhatsApp entrant
+            </button>
+            <button type="button" class="btn btn-outline"
                     onclick="document.getElementById('dialog-dispute').showModal()">
                 Signaler un litige
             </button>
@@ -93,7 +97,15 @@
         </div>
         <div class="kpi-card">
             <span class="kpi-label">Priorité Explicable</span>
+            {% if not detail.invoice.eligible_relance %}
+                {% if detail.invoice.statut_calcule == 'SOLDEE' %}
+                <span class="kpi-number" style="font-size:1.15rem;">Hors classement (Soldée)</span>
+                {% else %}
+                <span class="kpi-number is-warning" style="font-size:1.15rem;">Hors classement (Suspendue)</span>
+                {% endif %}
+            {% else %}
             <span class="kpi-number">{{ "%.3f"|format(detail.invoice.score_priorite) }}</span>
+            {% endif %}
             <span class="kpi-foot">{{ detail.invoice.explication_score }}</span>
         </div>
     </section>
@@ -351,6 +363,37 @@
             <div class="dialog-footer">
                 <button type="button" class="btn btn-outline" onclick="document.getElementById('dialog-ai-override').close()">Annuler</button>
                 <button type="submit" class="btn btn-primary">Appliquer la qualification humaine</button>
+            </div>
+        </form>
+    </div>
+</dialog>
+
+<!-- Modale Simulation de Reception d'un Message WhatsApp/SMS Client Entrant -->
+<dialog id="dialog-incoming-msg" closedby="any" aria-labelledby="dialog-incoming-msg-title">
+    <div class="dialog-body">
+        <div class="dialog-header">
+            <h1 id="dialog-incoming-msg-title">Simuler la réception d’un message client · {{ detail.invoice.invoice_id }}</h1>
+        </div>
+        <p style="margin:0 0 0.75rem; font-size:0.8rem; color:var(--text-secondary);">
+            Simule un webhook WhatsApp/SMS entrant (100 % local, sans connexion externe). Le message est immédiatement analysé par l’IA explicable et bascule la relance en revue humaine si un litige ou une incertitude est détecté.
+        </p>
+        <form id="form-incoming-msg">
+            <input type="hidden" id="inc-invoice-id" value="{{ detail.invoice.invoice_id }}">
+            <div class="form-field">
+                <label for="inc-canal">Canal entrant simulé</label>
+                <select id="inc-canal">
+                    <option value="WHATSAPP" {% if detail.invoice.canal_prefere == 'WHATSAPP' %}selected{% endif %}>WHATSAPP</option>
+                    <option value="SMS" {% if detail.invoice.canal_prefere == 'SMS' %}selected{% endif %}>SMS</option>
+                    <option value="EMAIL" {% if detail.invoice.canal_prefere == 'EMAIL' %}selected{% endif %}>EMAIL</option>
+                </select>
+            </div>
+            <div class="form-field">
+                <label for="inc-message">Message envoyé par le client</label>
+                <textarea id="inc-message" rows="3" placeholder="Ex: Bonjour, 5 cartons livrés hier sont abîmés, je conteste le solde de cette facture..." required></textarea>
+            </div>
+            <div class="dialog-footer">
+                <button type="button" class="btn btn-outline" onclick="document.getElementById('dialog-incoming-msg').close()">Annuler</button>
+                <button type="submit" class="btn btn-primary">Recevoir &amp; Analyser par l’IA</button>
             </div>
         </form>
     </div>

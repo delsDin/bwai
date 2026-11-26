@@ -1,5 +1,7 @@
 # Méthode de génération des jeux de données
 
+**Équipe** : AlPha coDers (DINLA Marcel, ABDOULAYE Nydal, KINHOU Ange, FAGBEGNON Dimitri)
+
 Ce document décrit comment ont été produits les deux fichiers CSV de classification de messages clients de recouvrement (contexte béninois) :
 
 - `jeu_entrainement_recouvrement_benin.csv` : 250 messages, destinés à l'entraînement.
