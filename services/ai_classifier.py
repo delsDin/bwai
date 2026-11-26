@@ -8,6 +8,7 @@ et d'envoyer tout cas incertain (confiance < 0.75) dans la file de revue humaine
 import csv
 from pathlib import Path
 import re
+import threading
 from typing import Dict, Any, List, Tuple
 from sklearn.feature_extraction.text import TfidfVectorizer
 from sklearn.linear_model import LogisticRegression
@@ -74,14 +75,17 @@ class ClientMessageClassifier:
             ("clf", LogisticRegression(C=2.0, class_weight="balanced", random_state=42, max_iter=1000)),
         ])
         self._is_trained = False
+        self._lock = threading.Lock()
         self.train_size = 0
 
     def ensure_trained(self) -> None:
         if not self._is_trained:
-            texts, labels, _ = load_labeled_dataset(self.train_csv_path)
-            self.pipeline.fit(texts, labels)
-            self.train_size = len(texts)
-            self._is_trained = True
+            with self._lock:
+                if not self._is_trained:
+                    texts, labels, _ = load_labeled_dataset(self.train_csv_path)
+                    self.pipeline.fit(texts, labels)
+                    self.train_size = len(texts)
+                    self._is_trained = True
 
     def classify(
         self,

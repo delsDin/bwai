@@ -251,6 +251,8 @@ def get_dashboard_kpis(db_path: Path | None = None) -> Dict[str, Any]:
         return {
             "reference_date": settings.get("reference_date"),
             "high_amount_threshold": float(settings.get("high_amount_threshold", 500000)),
+            "ai_confidence_threshold": float(settings.get("ai_confidence_threshold", 0.75)),
+            "emergency_stop": settings.get("emergency_stop", "0") == "1",
             "total_factures": int(inv_stats["total_factures"] or 0),
             "total_facture": float(inv_stats["total_facture"] or 0.0),
             "encours_total": float(inv_stats["encours_total"] or 0.0),

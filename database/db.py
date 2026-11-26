@@ -61,10 +61,21 @@ def db_atomic(db_path: Path | None = None) -> Iterator[sqlite3.Connection]:
 
 
 def init_db(db_path: Path | None = None) -> None:
-    """Crée les tables SQLite et insère les paramètres par défaut s'ils n'existent pas."""
+    """Crée les tables SQLite, migre les colonnes manquantes si nécessaire et insère les paramètres par défaut."""
     schema_sql = config.SCHEMA_PATH.read_text(encoding="utf-8")
     with db_session(db_path) as conn:
         conn.executescript(schema_sql)
+        # Auto-migration idempotente si une base SQLite preexistante est ouverte
+        for alter_sql in (
+            "ALTER TABLE reminders ADD COLUMN cree_par TEXT NOT NULL DEFAULT 'SYSTEME'",
+            "ALTER TABLE reminders ADD COLUMN valide_par TEXT",
+            "ALTER TABLE audit_logs ADD COLUMN prev_hash TEXT NOT NULL DEFAULT 'GENESIS'",
+            "ALTER TABLE audit_logs ADD COLUMN entry_hash TEXT NOT NULL DEFAULT ''",
+        ):
+            try:
+                conn.execute(alter_sql)
+            except sqlite3.OperationalError:
+                pass
         default_settings = [
             ("reference_date", config.DEFAULT_REFERENCE_DATE.isoformat(), "Date de référence pour les calculs reproductibles"),
             ("high_amount_threshold", str(config.DEFAULT_HIGH_AMOUNT_THRESHOLD), "Seuil gros montant (FCFA) pour revue humaine obligatoire"),
