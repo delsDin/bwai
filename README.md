@@ -1,510 +1,320 @@
-# Recouvrement des factures impayées - Prototype BWAI 2026
+# Recouvrement des factures impayées — Prototype BWAI 2026
 
-Prototype réalisé pour le **cas pratique 1 « Recouvrement automatique des factures impayées »** du hackathon BWAI 2026.
+**Équipe** : AlPha coDers  
+**Membres** :
+- DINLA Marcel
+- ABDOULAYE Nydal
+- KINHOU Ange
+- FAGBEGNON Dimitri
 
-Il aide une PME à :
+Prototype développé pour le **cas pratique 1 « Recouvrement automatique des factures impayées »** du hackathon BWAI 2026.
 
-- importer son portefeuille ;
-- calculer ce que chaque client doit vraiment ;
-- classer les dossiers par priorité ;
-- préparer des relances simulées ;
-- faire valider les cas sensibles par une personne ;
-- garder un journal de chaque décision.
+Cette application web locale aide une PME béninoise à :
+- importer son portefeuille client depuis Excel ou CSV en bloquant les doublons et les erreurs ;
+- calculer de façon exacte et vérifiable les soldes restants et les jours de retard ;
+- classer les créances par ordre de priorité avec une explication claire pour chaque dossier ;
+- préparer des messages de relance adaptés au canal du client (WhatsApp, SMS ou Email) ;
+- analyser les réponses des clients grâce à une intelligence artificielle locale et explicable ;
+- confier toutes les décisions sensibles (litiges, gros montants, cas incertains) à une validation humaine ;
+- conserver un journal d'audit horodaté et protégé par une chaîne d'empreintes SHA-256.
 
 > [!IMPORTANT]
-> Toutes les données sont **fictives**. Aucun message WhatsApp, SMS ou e-mail n'est envoyé et aucun paiement Mobile Money n'est réel. Les références `MOMO-DEMO-…` sont signalées comme simulées dans chaque message.
-
-
+> Toutes les données sont fictives. Aucun secret ni clé d'API n'est utilisé. Les envois de messages (WhatsApp, SMS, Email), la réception de réponses clients et les règlements Mobile Money (`MOMO-DEMO-…`) sont intégralement simulés en local, sans aucune connexion externe.
 
 ## Sommaire
 
-1. [Fonctionnalités](#1-fonctionnalités)
+1. [Fonctionnalités couvertes](#1-fonctionnalités-couvertes)
 2. [Installation](#2-installation)
 3. [Configuration](#3-configuration)
-4. [Lancement](#4-lancement)
-5. [Comptes de test](#5-comptes-de-test)
-6. [Scénario de démonstration](#6-scénario-de-démonstration)
-7. [Format du fichier d'import](#7-format-du-fichier-dimport)
-8. [Règles métier](#8-règles-métier)
-9. [Brique IA](#9-brique-ia)
-10. [Architecture](#10-architecture)
-11. [API REST](#11-api-rest)
+4. [Lancement et ouverture avec Uvicorn](#4-lancement-et-ouverture-avec-uvicorn)
+5. [Comptes de test et rôles](#5-comptes-de-test-et-rôles)
+6. [Scénario de démonstration en 3 à 4 minutes](#6-scénario-de-démonstration-en-3-à-4-minutes)
+7. [Format des fichiers d'import](#7-format-des-fichiers-dimport)
+8. [Règles de calcul, statuts et priorisation](#8-règles-de-calcul-statuts-et-priorisation)
+9. [Brique IA et comparaison avec les autres modèles](#9-brique-ia-et-comparaison-avec-les-autres-modèles)
+10. [Architecture du projet](#10-architecture-du-projet)
+11. [Routes de l'API REST](#11-routes-de-lapi-rest)
 12. [Tests automatisés](#12-tests-automatisés)
-13. [Reprise après interruption](#13-reprise-après-interruption)
+13. [Travail hors connexion et reprise après coupure](#13-travail-hors-connexion-et-reprise-après-coupure)
 14. [Dépendances et licences](#14-dépendances-et-licences)
 15. [Limites connues](#15-limites-connues)
-16. [Documentation complémentaire](#16-documentation-complémentaire)
+16. [Documentation du dépôt](#16-documentation-du-dépôt)
 
+## 1. Fonctionnalités couvertes
 
-
-## 1. Fonctionnalités
-
-| Module du guide | Ce que fait le prototype |
+| Module du cahier des charges | Comportement dans l'application |
 |---|---|
-| A. Import local | Import Excel multi-feuilles (6 entités) ou CSV, bilan des lignes acceptées et rejetées |
-| B. Contrôle des données | Champs obligatoires, formats, dates, montants, devise, doublons, références inconnues, paiements antérieurs à l'émission. Les lignes rejetées peuvent être **corrigées** ou **exclues** depuis l'interface |
-| C. Calcul fiable | Solde et jours de retard calculés en arithmétique décimale exacte à partir d'une date de référence |
-| D. Statuts | Non échue, échue, partiellement payée, soldée, contestée, couverte par un échéancier |
-| E. Priorisation | Score explicable : 40 % retard, 35 % solde, 25 % historique |
-| F. Relances graduées | Rappel avant échéance (optionnel), relance 1, relance 2 |
-| G. Message personnalisé | Nom du client, référence, échéance, solde vérifié, référence Mobile Money fictive |
-| H. Validation humaine | File de revue pour les litiges, gros montants, cas IA incertains, historique inconnu. Décisions : approuver, modifier, suspendre, rejeter |
-| I. Vérification avant envoi | Recalcul du solde et du statut, contrôle du canal, du consentement, du délai minimal et du plafond juste avant l'envoi simulé |
-| J. Paiements simulés | Enregistrement idempotent, détection de surpaiement avec proposition d'avoir |
-| K. Hors connexion | SQLite local, cache persistant, reprise contrôlée sans doublon |
-| L. Traçabilité | Journal horodaté, chaîné en SHA-256, protégé contre la modification et la suppression |
-
-Fonctions ajoutées :
-
-- gestion des exceptions depuis la fiche facture : ouvrir ou résoudre un litige, émettre un avoir, accorder un échéancier ;
-- paramètres métier modifiables dans l'interface (date de référence, seuils, canal) ;
-- reprise humaine sur la qualification IA d'un message ;
-- comparaison chiffrée avec une méthode manuelle de référence ;
-- démonstration en direct de 20 traitements concurrents ;
-- arrêt d'urgence qui bloque tout envoi simulé.
-
-
+| **A. Importation locale** | Import de fichiers Excel à 6 feuilles ou CSV, téléchargement d'un gabarit Excel prêt à remplir, bilan des lignes acceptées et rejetées. |
+| **B. Contrôle des données** | Vérification des champs obligatoires, des dates, des montants positifs, de la devise (`FCFA`), des doublons, des références inconnues et de la chronologie des paiements. Boutons pour **corriger et réintégrer** ou **exclure** chaque ligne rejetée. |
+| **C. Calcul fiable** | Calcul déterministe en arithmétique décimale exacte (`Decimal`, arrondi commercial au centime) à partir d'une date de référence configurable. |
+| **D. Statuts des factures** | Prise en compte des 6 statuts demandés : `NON_ECHUE`, `ECHUE`, `PARTIELLEMENT_PAYEE`, `SOLDEE`, `CONTESTEE`, `COUVERTE_PAR_ECHEANCIER`, avec distinction claire des dossiers hors classement (`Hors classement (Soldée)` et `Hors classement (Suspendue)`). |
+| **E. Priorisation** | Classement explicable combinant le retard (40 %), le solde restant (35 %) et l'historique client (25 %). |
+| **F. Relances graduées** | Trois niveaux (`RAPPEL_PRE_ECHEANCE` optionnel à J-3, `RELANCE_1` de 1 à 14 jours, `RELANCE_2` dès 15 jours) sur le canal préféré du client. |
+| **G. Message personnalisé** | Génération adaptée au canal (SMS court, WhatsApp ou Email avec objet) incluant le solde vérifié et une référence Mobile Money fictive clairement signalée. |
+| **H. Validation humaine** | Mise en attente des litiges, des montants atteignant le seuil configuré, des messages clients sensibles ou incertains et des nouveaux clients sans historique. Décisions : approuver, modifier, suspendre ou rejeter, avec respect du principe des quatre yeux. |
+| **I. Vérification avant envoi** | Recalcul du solde et du statut dans une transaction verrouillée juste avant l'envoi simulé, contrôle du canal, du consentement, du délai minimal de 7 jours, du plafond de 3 relances et de l'arrêt d'urgence. |
+| **J. Paiements simulés** | Enregistrement sans double comptabilisation, annulation automatique des relances devenues inutiles, détection des surpaiements avec proposition d'avoir. |
+| **K. Travail hors connexion** | Base SQLite locale en mode WAL, cache automatique de session et reprise sans doublon après interruption. |
+| **L. Traçabilité et exports** | Journal horodaté chaîné en SHA-256 protégé contre toute modification, vérification d'intégrité en un clic, exports CSV et JSON du portefeuille (avec contacts masqués) et export CSV du journal. |
 
 ## 2. Installation
 
 ### Prérequis
+- Python **3.11 ou version supérieure** (testé avec Python 3.14.4)
+- Fonctionne sous Linux, macOS et Windows
+- Aucune connexion Internet ni clé d'API externe requise après l'installation des bibliothèques Python
 
-- Python **3.11 ou plus** (développé et testé avec Python 3.14.4)
-- Linux, macOS ou Windows
-- Aucune connexion Internet requise après installation des dépendances
-- Aucune clé d'API externe
-
-### Étapes
+### Commandes d'installation
 
 ```bash
 git clone https://github.com/delsDin/bwai.git recouvrement_bwai
 cd recouvrement_bwai
 
 python3 -m venv .venv
-source .venv/bin/activate        # Windows : .venv\Scripts\activate
+source .venv/bin/activate        # Sous Windows : .venv\Scripts\activate
 
 pip install -r requirements.txt
-cp .env.example .env              # Windows : copy .env.example .env
 ```
 
-
+Aucun fichier `.env` n'est nécessaire : toute la configuration de démonstration est prête à l'emploi dans `config.py`.
 
 ## 3. Configuration
 
-Toute la configuration est dans `.env`. Le fichier `.env` est ignoré par Git. Le fichier `.env.example` contient des valeurs de démonstration sans secret réel.
+Conformément au cahier des charges (*« sans secret ni donnée sensible »*), tous les paramètres sont centralisés en clair dans le fichier [config.py](config.py).
 
-| Variable | Défaut | Rôle |
+| Paramètre dans `config.py` | Valeur par défaut | Rôle métier |
 |---|---|---|
-| `BWAI_REFERENCE_DATE` | `2026-03-15` | Date de référence de tous les calculs. Fixe pour rendre les résultats reproductibles |
-| `BWAI_HIGH_AMOUNT_THRESHOLD` | `500000.0` | Solde (FCFA) à partir duquel une validation humaine est obligatoire |
-| `BWAI_AI_CONFIDENCE_THRESHOLD` | `0.75` | Confiance IA minimale. En dessous, le dossier part en revue |
-| `BWAI_DEFAULT_CHANNEL` | `WHATSAPP` | Canal simulé par défaut : `WHATSAPP`, `SMS` ou `EMAIL` |
-| `BWAI_MIN_DAYS_BETWEEN_REMINDERS` | `7` | Délai minimal entre deux relances envoyées sur une facture |
-| `BWAI_MAX_REMINDERS_PER_INVOICE` | `3` | Nombre maximal de relances envoyées par facture |
-| `BWAI_REQUIRE_AUTH` | `1` | `1` : jeton obligatoire sur les routes protégées. `0` : débogage local uniquement |
-| `BWAI_TOKEN_*` | voir `.env.example` | Jetons des comptes de test |
-| `BWAI_DATABASE_PATH` | `database/recouvrement.db` | Emplacement de la base SQLite |
+| `DEFAULT_REFERENCE_DATE` | `2026-03-15` | Date de référence fixe permettant de reproduire exactement les mêmes calculs de retard. |
+| `DEFAULT_HIGH_AMOUNT_THRESHOLD` | `500000.0` | Montant en FCFA à partir duquel la validation par un superviseur humain est obligatoire. |
+| `DEFAULT_AI_CONFIDENCE_THRESHOLD` | `0.75` | Seuil de confiance IA en dessous duquel le message client est envoyé en revue humaine. |
+| `DEFAULT_CHANNEL` | `WHATSAPP` | Canal simulé par défaut (`WHATSAPP`, `SMS` ou `EMAIL`). |
+| `MIN_DAYS_BETWEEN_REMINDERS` | `7` | Nombre minimal de jours à respecter entre deux relances envoyées sur une même facture. |
+| `MAX_REMINDERS_PER_INVOICE` | `3` | Nombre maximal de relances autorisées par facture. |
+| `WEIGHT_DELAY / BALANCE / HISTORY` | `0.40 / 0.35 / 0.25` | Poids respectifs du retard, du solde et de l'historique dans le score de priorité. |
+| `REQUIRE_AUTH` | `True` | Active la vérification obligatoire des jetons d'opérateur sur les routes de modification. |
 
-La date de référence, les seuils et le canal peuvent aussi être modifiés à chaud depuis le bouton **Paramètres métier** du tableau de bord. Chaque modification recalcule le portefeuille et est inscrite au journal.
+Ces paramètres (ainsi que la préparation automatique des relances et l'activation des rappels pré-échéance) peuvent aussi être modifiés directement depuis l'interface web grâce au bouton **Paramètres métier**.
 
+## 4. Lancement et ouverture avec Uvicorn
 
+### Étape 1 : Démarrer le serveur Uvicorn
 
-## 4. Lancement
+Dans un terminal placé dans le dossier `recouvrement_bwai`, activer l'environnement virtuel puis lancer la commande `uvicorn` :
 
 ```bash
-source .venv/bin/activate
-uvicorn app:app --reload
+source .venv/bin/activate        # Sous Windows : .venv\Scripts\activate
+uvicorn app:app --reload --host 127.0.0.1 --port 8000
 ```
 
-| Adresse | Contenu |
-|---|---|
-| http://127.0.0.1:8000/ | Tableau de bord |
-| http://127.0.0.1:8000/invoices/FAC-2026-002 | Fiche d'une facture (exemple) |
-| http://127.0.0.1:8000/docs | Documentation interactive de l'API (Swagger) |
+Détail de la commande :
+- `app:app` indique à Uvicorn de charger l'objet FastAPI `app` situé dans le fichier `app.py`.
+- `--reload` redémarre automatiquement le serveur si un fichier de code est modifié.
+- `--host 127.0.0.1 --port 8000` ouvre le serveur en local sur le port `8000`.
 
-Au premier lancement, le tableau de bord est **vide**. Deux façons de le remplir :
+Lorsque le terminal affiche `Application startup complete`, la base SQLite locale est initialisée et le modèle IA est entraîné.
 
-- bouton **Charger la démo** (portefeuille de 7 factures couvrant les cas T1 à T7) ;
-- onglet **Imports** puis le fichier `data/demo_portfolio.xlsx`.
+### Étape 2 : Ouvrir l'application dans le navigateur
 
-### Remettre à zéro
+Ouvrir un navigateur web (Chrome, Firefox, Edge ou Safari) et saisir l'une des adresses suivantes :
+- **Tableau de bord principal** : http://127.0.0.1:8000/
+- **Fiche détaillée d'une facture** : http://127.0.0.1:8000/invoices/FAC-2026-002
+- **Documentation interactive de l'API (Swagger)** : http://127.0.0.1:8000/docs
 
-- Bouton **Effacer tout** (rôle ADMIN), ou
-- arrêter le serveur et supprimer `database/recouvrement.db` et `database/app_state_cache.json`.
+Au premier démarrage, le tableau de bord s'ouvre à vide pour permettre de tester l'importation en direct. Vous pouvez soit cliquer sur **Charger la démo**, soit importer le fichier `data/demo_portfolio.xlsx` depuis l'onglet **Imports**.
 
+## 5. Comptes de test et rôles
 
+Pour faciliter la démonstration devant le jury, le menu déroulant **Opérateur** en haut à droite de l'écran permet de changer de profil en un clic. Chaque action envoie automatiquement le jeton correspondant dans l'en-tête `X-API-Token`.
 
-## 5. Comptes de test
-
-L'authentification se fait par jeton, transmis dans l'en-tête `X-API-Token` (ou `Authorization: Bearer <jeton>`). Dans l'interface, le menu **Opérateur** en haut à droite choisit le compte actif.
-
-| Compte | Rôle | Jeton de démonstration | Peut faire |
+| Opérateur | Rôle | Jeton de test (`config.py`) | Permissions principales |
 |---|---|---|---|
-| Koffi | GESTIONNAIRE | `tok-gestionnaire-koffi` | Importer, préparer et envoyer des relances, encaisser, signaler un litige |
-| Amina | VALIDATEUR | `tok-validateur-amina` | Tout ce que fait le gestionnaire, plus valider les relances, émettre des avoirs, accorder des échéanciers, résoudre des litiges, modifier les paramètres |
-| Boris | VALIDATEUR | `tok-validateur-boris` | Second validateur pour le principe des quatre yeux |
-| Direction | ADMIN | `tok-admin-direction` | Tout, plus réinitialiser, effacer, restaurer le cache, arrêt d'urgence |
+| **Koffi** | `GESTIONNAIRE` | `tok-gestionnaire-koffi` | Importer un portefeuille, corriger une ligne rejetée, préparer et envoyer une relance standard, enregistrer un paiement simulé, signaler un litige, simuler un message client entrant. |
+| **Amina** | `VALIDATEUR` | `tok-validateur-amina` | Toutes les actions du gestionnaire, plus approuver/modifier/suspendre/rejeter en revue humaine, émettre un avoir, accorder un échéancier, résoudre un litige et modifier les paramètres métier. |
+| **Boris** | `VALIDATEUR` | `tok-validateur-boris` | Second validateur permettant de démontrer le principe des quatre yeux lorsqu'Amina a elle-même préparé une relance sensible. |
+| **Direction** | `ADMIN` | `tok-admin-direction` | Toutes les actions, plus activer l'arrêt d'urgence, charger la démo, remettre la base à zéro et restaurer le cache. |
 
-Règles appliquées :
+## 6. Scénario de démonstration en 3 à 4 minutes
 
-- un appel sans jeton sur une route protégée renvoie **401** ;
-- un rôle insuffisant renvoie **403** ;
-- une personne qui a préparé une relance ne peut pas l'approuver elle-même (**quatre yeux**) ;
-- les jetons sont stockés hachés en SHA-256 dans la table `users`.
+1. **Importer et contrôler** : sélectionner l'opérateur **Koffi**, ouvrir l'onglet **Imports** et importer `data/demo_portfolio.xlsx`. Montrer que 17 lignes sont acceptées et que la facture `FAC-ERR-DEMO` (montant `-45000`) est isolée dans les rejets.
+2. **Corriger une anomalie** : cliquer sur **Corriger** sur la ligne rejetée, remplacer `-45000` par `45000` et valider. La facture est immédiatement intégrée et la correction est tracée.
+3. **Expliquer les calculs et le classement** : dans l'onglet **Portefeuille**, montrer l'encours, les retards et le classement priorisé. Ouvrir `FAC-2026-003` pour montrer le calcul exact du solde (`250 000 - 80 000 de paiement - 20 000 d'avoir = 150 000 FCFA`) et expliquer pourquoi les dossiers soldés ou contestés portent la mention **Hors classement**.
+4. **Simuler une réponse WhatsApp d'un client** : sur une facture échue, cliquer sur **Simuler message WhatsApp entrant** et saisir une contestation. Montrer que l'IA détecte le litige, affiche les mots explicatifs et place aussitôt la relance en **Revue humaine**.
+5. **Valider à quatre yeux** : passer sur le profil **Amina (Validateur)**, ouvrir l'onglet **Revue humaine**, examiner la relance de gros montant `FAC-2026-007` (780 000 FCFA), adapter ou approuver le message.
+6. **Simuler un paiement avant l'envoi** : encaisser le solde de `FAC-2026-003` (150 000 FCFA), puis tenter un second paiement identique (bloqué comme doublon) et vérifier que la relance devenue inutile a été automatiquement annulée.
+7. **Montrer les preuves et le journal** : ouvrir l'onglet **Audit & IA**, observer le comparatif face à la méthode manuelle Excel, cliquer sur **Vérifier le journal** (chaîne SHA-256 intacte) et sur **Tester 20 threads simultanés** (`1 action exécutée, 19 doublons bloqués`).
 
-> [!WARNING]
-> Ces jetons sont des jetons de **démonstration**. Le menu Opérateur les contient pour permettre au jury de changer de rôle en un clic. Ne pas utiliser ce mécanisme hors démonstration (voir [Limites connues](#15-limites-connues)).
+## 7. Format des fichiers d'import
 
+Un gabarit Excel prêt à l'emploi peut être téléchargé depuis l'onglet **Imports** (`GET /api/import/template.xlsx`). Il comprend six feuilles :
+- **`Clients`** : `client_id`, `nom_affiche`, `contact_simule`, `canal_prefere` (`WHATSAPP`, `SMS`, `EMAIL`), `consentement_contact` (`1` ou `0`), `nb_factures_historiques`, `nb_retards_historiques`.
+- **`Factures`** : `invoice_id`, `client_id`, `date_emission`, `date_echeance`, `montant_initial`, `devise` (`FCFA` ou `XOF`), `dernier_message_client`.
+- **`Paiements`** : `payment_id`, `invoice_id`, `date_paiement`, `montant`, `reference_fictive`.
+- **`Avoirs`** : `credit_note_id`, `invoice_id`, `date_avoir`, `montant`, `motif`.
+- **`Echeanciers`** : `plan_id`, `invoice_id`, `date_prochaine_echeance`, `montant_prevu`, `statut`.
+- **`Contestations`** : `dispute_id`, `invoice_id`, `motif`, `date_ouverture`, `statut`.
 
+L'import accepte aussi des fichiers `.csv` par entité.
 
-## 6. Scénario de démonstration
+## 8. Règles de calcul, statuts et priorisation
 
-Durée : 3 à 4 minutes. Partir d'une base vide.
+### Formules déterministes
+- **Solde restant** : `max(0, montant initial - paiements validés - avoirs)` calculé en `Decimal` exact.
+- **Trop-perçu (surpaiement)** : `max(0, paiements validés + avoirs - montant initial)`. Lorsqu'un règlement dépasse le solde, la facture passe à `SOLDEE` et une alerte propose l'émission d'un avoir.
+- **Jours de retard** : `max(0, date de référence - date d'échéance)`, ramené à `0` dès que la facture est soldée.
 
-| # | Action | Ce qu'on montre |
-|---|---|---|
-| 1 | Opérateur **Koffi**. Onglet **Imports**, charger `data/demo_portfolio.xlsx` | 17 lignes acceptées, 1 rejetée (`FAC-ERR-DEMO`, montant −45 000) avec son motif |
-| 2 | Sur la ligne rejetée, **Corriger**, remplacer `-45000` par `45000`, valider | La ligne est réintégrée, la correction est tracée |
-| 3 | Revenir au **Portefeuille** | Encours, retards, dossiers suspendus, règlements simulés |
-| 4 | Ouvrir `FAC-2026-003` | Solde = 250 000 − 80 000 (paiement) − 20 000 (avoir) = 150 000 FCFA, 30 jours de retard |
-| 5 | Lire le score de `FAC-2026-007` | Score 0,77 : 38 jours de retard, solde au-dessus du seuil, historique 4/6 |
-| 6 | **Préparer les relances** puis onglet **Revue humaine** | `FAC-2026-007` bloquée (gros montant), `FAC-2026-005` bloquée (litige) |
-| 7 | Opérateur **Amina**, **Examiner** `FAC-2026-007`, approuver | Relance validée par une autre personne que son auteur |
-| 8 | Onglet **Relances**, **Simuler l'envoi** | Solde revérifié, envoi inscrit comme simulé |
-| 9 | Encaisser le solde de `FAC-2026-003`, puis tenter d'envoyer sa relance | Relance annulée car la facture est soldée |
-| 10 | Encaisser deux fois avec la même référence | Second paiement refusé : une seule comptabilisation |
-| 11 | Onglet **Audit & IA** | Journal, vérification de la chaîne SHA-256, comparaison à la méthode manuelle, test 20 threads |
-| 12 | Terminal : `pytest -q` | 49 tests verts |
+### Priorité des 6 statuts métier
+1. `SOLDEE` (solde nul)
+2. `CONTESTEE` (litige ouvert)
+3. `COUVERTE_PAR_ECHEANCIER` (échéancier actif dont la prochaine date n'est pas dépassée)
+4. `PARTIELLEMENT_PAYEE` (au moins un paiement ou avoir imputé, solde positif)
+5. `ECHUE` (date d'échéance dépassée, aucun règlement)
+6. `NON_ECHUE` (date d'échéance non atteinte, aucun règlement)
 
+### Formule de priorisation explicable
+Pour les factures éligibles aux relances :
+`Score = 0,40 × min(retard / 60, 1) + 0,35 × min(solde / seuil_gros_montant, 1) + 0,25 × score_historique`
 
+Lorsque le client n'a aucune facture antérieure (`0/0`), la composante historique prend la valeur prudente `0,50` et la relance est envoyée en revue humaine.
 
-## 7. Format du fichier d'import
+## 9. Brique IA et comparaison avec les autres modèles
 
-### Excel (recommandé)
+### Fonctionnement et rôle strict
+L'IA (`services/ai_classifier.py`) ne calcule aucun montant et n'envoie aucune relance. Elle lit le dernier message du client pour le classer parmi 4 intentions (`LITIGE`, `DEMANDE_ECHEANCIER`, `ANNONCE_PAIEMENT`, `RETARD_SIMPLE`) et bloquer en revue humaine tout dossier sensible ou incertain.
 
-Un classeur `.xlsx` avec une feuille par entité. Le nom des feuilles n'est pas sensible à la casse ; les noms anglais sont aussi acceptés.
+Son pipeline associe un normaliseur d'abréviations SMS béninoises, une vectorisation `TF-IDF (1-2 grammes)`, une `LogisticRegression` équilibrée et une calibration de température du Softmax ($T = 0,55$).
+- **Jeu d'entraînement** : `data/train.csv` (250 messages fictifs).
+- **Jeu de test séparé** : `data/test.csv` (100 messages inédits, 0 doublon avec l'entraînement).
+- **Sécurité métier** : **100 % des 82 messages sensibles** et **100 % des erreurs du modèle** sur le jeu de test sont orientés vers la revue humaine (**0 envoi automatique abusif**).
 
-| Feuille | Colonnes obligatoires | Colonnes facultatives |
-|---|---|---|
-| `Clients` | `client_id`, `nom_affiche`, `contact_simule` | `canal_prefere`, `consentement_contact`, `nb_factures_historiques`, `nb_retards_historiques` |
-| `Factures` | `invoice_id`, `client_id`, `date_emission`, `date_echeance`, `montant_initial` | `devise`, `statut_source`, `dernier_message_client` |
-| `Paiements` | `payment_id`, `invoice_id`, `date_paiement`, `montant`, `reference_fictive` | |
-| `Avoirs` | `credit_note_id`, `invoice_id`, `date_avoir`, `montant`, `motif` | |
-| `Echeanciers` | `plan_id`, `invoice_id`, `date_prochaine_echeance`, `montant_prevu` | `statut` (`ACTIF`, `ROMPU`, `TERMINE`) |
-| `Contestations` | `dispute_id`, `invoice_id`, `motif`, `date_ouverture` | `statut` (`OUVERT`, `RESOLU`) |
+### Comparaison expérimentale avec les autres familles de modèles (Arbres, Forêts, Boosting, Naive Bayes, SVM et Règles)
 
-Dates au format `AAAA-MM-JJ`. Montants en FCFA. Les entités sont importées dans l'ordre du tableau : une facture qui référence un client absent est rejetée.
+Six familles d'algorithmes d'apprentissage automatique et une base de règles par mots-clés ont été comparées sur nos données (commande de reproduction : `python -m services.ai_classifier`) :
 
-### CSV
+| Famille de modèle | F1-macro (Validation croisée 5 plis sur `train.csv`) | Exactitude (Validation croisée 5 plis) | Exactitude sur `test.csv` (100 cas) | F1-macro sur `test.csv` | Rappel sur la classe `LITIGE` (`test.csv`) |
+|---|---:|---:|---:|---:|---:|
+| **LogisticRegression (C=2.0, balanced) [Retenu]** | **79,74 % (± 2,80 %)** | **81,60 %** | **89,00 %** | **89,85 %** | **95,83 % (23/24)** |
+| LinearSVC + Calibration de Platt | 79,73 % (± 3,37 %) | 81,60 % | 89,00 % | 89,85 % | 95,83 % (23/24) |
+| Forêt aléatoire (RandomForest, 100 arbres) | 65,66 % (± 4,66 %) | 65,20 % | 77,00 % | 77,27 % | 54,17 % (13/24) |
+| Gradient Boosting (100 arbres) | 64,76 % (± 4,70 %) | 64,80 % | 72,00 % | 72,36 % | 54,17 % (13/24) |
+| Multinomial Naive Bayes (alpha=0.5) | 67,36 % (± 3,71 %) | 72,00 % | 69,00 % | 70,68 % | 100,00 % (sur-prédit LITIGE) |
+| Arbre de décision (DecisionTree, profondeur 15) | 54,99 % (± 6,91 %) | 54,80 % | 62,00 % | 62,73 % | 66,67 % (16/24) |
+| Règles par mots-clés (Baseline sans IA) | Non applicable | Non applicable | 36,00 % | 35,80 % | 79,17 % (19/24) |
 
-Un fichier CSV contient **une seule entité**. Le type est reconnu à partir des colonnes (`montant_initial` → factures, `nom_affiche` → clients, `payment_id` → paiements, etc.). Importer d'abord les clients, puis les factures, puis le reste.
+### Pourquoi la Régression Logistique surpasse-t-elle les arbres de décision sur nos messages ?
+Un message WhatsApp ou SMS est très court (10 à 15 mots) au sein d'un vocabulaire de plus de 1 500 mots. Un arbre de décision teste un seul mot à chaque branche : si le client emploie un synonyme absent du sommet de l'arbre, l'arbre se trompe (62 % pour un arbre seul, 77 % pour une forêt de 100 arbres). À l'inverse, la régression logistique additionne les indices de tous les mots présents dans la phrase en même temps, ce qui lui donne **89 % d'exactitude (+12 à +27 points devant les arbres)** tout en permettant d'afficher à l'opérateur les mots exacts qui ont pesé dans la décision.
 
-### Contrôles appliqués
+Tous les détails figurent dans [FICHE_IA.md](FICHE_IA.md).
 
-| Contrôle | Exemple de rejet |
-|---|---|
-| Champ obligatoire, type, format de date | `date_echeance` absente ou illisible |
-| Montant strictement positif | `montant_initial = -15000` |
-| Échéance postérieure à l'émission | échéance avant émission |
-| Devise | seules `FCFA`, `XOF`, `CFA` sont acceptées (normalisées en `FCFA`) |
-| Historique cohérent | plus de retards que de factures historiques |
-| Doublons | identifiant déjà présent, ou même `(facture, référence de paiement)` |
-| Références | client ou facture inconnus |
-| Chronologie | paiement ou avoir daté avant l'émission de la facture |
-
-Aucune ligne invalide n'est intégrée silencieusement : elle est inscrite dans l'onglet **Imports** avec son motif, puis corrigée ou exclue.
-
-
-
-## 8. Règles métier
-
-### Calculs
-
-```
-Solde restant   = max(0, montant initial − paiements validés − avoirs)
-Excédent        = max(0, paiements validés + avoirs − montant initial)
-Jours de retard = max(0, date de référence − date d'échéance), 0 si la facture est soldée
-```
-
-- Les montants sont calculés en `Decimal`, arrondis au centime (arrondi commercial), pour éviter les erreurs d'arrondi des nombres à virgule.
-- L'identité `solde + payé + avoirs − excédent = montant initial` est vérifiée par les tests.
-- Un surpaiement solde la facture, déclenche une alerte au journal et propose un avoir ou un remboursement.
-
-### Statuts
-
-Une facture peut être à la fois échue et partiellement payée. Le prototype tranche avec un ordre de priorité, et expose aussi les deux dimensions séparément.
-
-| Ordre | Statut affiché | Condition |
-|---|---|---|
-| 1 | `SOLDEE` | Solde nul |
-| 2 | `CONTESTEE` | Au moins une contestation ouverte |
-| 3 | `COUVERTE_PAR_ECHEANCIER` | Échéancier actif dont la prochaine échéance n'est pas dépassée |
-| 4 | `PARTIELLEMENT_PAYEE` | Un paiement ou avoir imputé, solde positif |
-| 5 | `ECHUE` | Échéance dépassée, aucun paiement |
-| 6 | `NON_ECHUE` | Échéance non atteinte, aucun paiement |
-
-Champs complémentaires renvoyés par le calcul :
-
-- `statut_paiement` : `IMPAYEE`, `PARTIELLEMENT_PAYEE`, `SOLDEE` ;
-- `statut_echeance` : `NON_ECHUE`, `ECHUE`, `SOLDEE`.
-
-Un échéancier dont la prochaine échéance est dépassée ne protège plus la facture : elle redevient relançable.
-
-### Priorisation
-
-```
-Score = 0,40 × min(retard / 60 j, 1)
-      + 0,35 × min(solde / seuil gros montant, 1)
-      + 0,25 × (retards antérieurs / factures antérieures)
-```
-
-- Si l'historique est inconnu, la composante vaut 0,5 et le dossier part en revue.
-- Les factures soldées, contestées ou sous échéancier ne sont pas classées comme relances prêtes.
-- L'explication du score est affichée pour chaque facture.
-
-Le score organise le travail. Il ne prédit pas le non-paiement.
-
-### Relances
-
-| Niveau | Déclenchement |
-|---|---|
-| `RAPPEL_PRE_ECHEANCE` | 0 à 3 jours avant l'échéance (désactivé par défaut) |
-| `RELANCE_1` | 1 à 14 jours de retard |
-| `RELANCE_2` | 15 jours de retard ou plus |
-
-Une relance part en **revue humaine** si au moins une condition est vraie :
-
-- litige ouvert ;
-- solde au moins égal au seuil de gros montant ;
-- message client classé sensible par l'IA, ou confiance sous le seuil, ou message hors vocabulaire ;
-- historique client inconnu ;
-- consentement absent ou canal demandé différent du canal préféré.
-
-Juste avant l'envoi simulé, dans une seule transaction, le moteur vérifie dans l'ordre :
-
-1. arrêt d'urgence ;
-2. relance déjà envoyée ;
-3. solde et statut recalculés (annulation si soldée, contestée ou sous échéancier) ;
-4. canal et consentement ;
-5. validation humaine accordée ;
-6. plafond de relances ;
-7. délai minimal depuis la dernière relance.
-
-### Idempotence
-
-| Opération | Protection |
-|---|---|
-| Paiement | Clé unique `(invoice_id, reference_fictive)` |
-| Relance | Clé unique `(invoice_id, niveau_relance)` et `idempotency_key` |
-| Envoi | Transition conditionnelle `APPROUVEE → SIMULEE`, vérifiée par le nombre de lignes modifiées |
-| Concurrence | Transactions SQLite `BEGIN IMMEDIATE`, mode WAL, délai d'attente de 30 s |
-
-
-
-## 9. Brique IA
-
-L'IA a **un seul rôle** : lire le dernier message d'un client et décider s'il doit passer par une personne. Elle ne calcule aucun montant et ne déclenche aucun envoi.
-
-| Élément | Valeur |
-|---|---|
-| Modèle | TF-IDF (mots et paires de mots) + régression logistique, scikit-learn |
-| Fonctionnement | 100 % local, entraînement au démarrage en moins d'une seconde |
-| Classes | `LITIGE`, `DEMANDE_ECHEANCIER`, `ANNONCE_PAIEMENT`, `RETARD_SIMPLE` |
-| Données | 250 messages d'entraînement (`data/train.csv`), 100 messages de test séparés (`data/test.csv`), tous rédigés à la main et fictifs |
-| Exactitude sur le jeu de test | 89 % (règles par mots-clés : 36 %) |
-| Messages sensibles laissés partir sans revue | 0 sur 82 |
-
-Explicabilité : pour chaque message, l'interface montre les mots qui ont le plus pesé, la probabilité de chaque classe et l'écart entre les deux premières.
-
-Reprise humaine : depuis la fiche facture, un opérateur peut corriger la classe retenue. Sa décision est conservée lors des recalculs et inscrite au journal.
-
-Reproduire l'évaluation :
-
-```bash
-python -m services.ai_classifier
-```
-
-Détails, erreurs observées et limites : [FICHE_IA.md](FICHE_IA.md).
-
-
-
-## 10. Architecture
-
-```mermaid
-flowchart LR
-    UI["Interface web<br/>Jinja2 + JS"] --> API["FastAPI<br/>routes/"]
-    API --> SEC["services/security.py<br/>jetons, rôles"]
-    API --> SVC["services/<br/>calculs, relances, paiements, IA"]
-    SVC --> REPO["models/repositories.py"]
-    REPO --> DB[("SQLite local<br/>WAL")]
-    SVC --> AUD["services/audit_logger.py<br/>journal SHA-256"]
-    AUD --> DB
-```
+## 10. Architecture du projet
 
 ```
 recouvrement_bwai/
-├── app.py                      Point d'entrée FastAPI
-├── config.py                   Paramètres lus depuis .env
+├── app.py                              Application FastAPI et démarrage
+├── config.py                           Paramètres métier et comptes de test (sans secret)
+├── LICENSE                             Licence MIT et licences des bibliothèques
+├── README.md                           Guide d'installation et d'utilisation
+├── FICHE_IA.md                         Documentation et évaluation du modèle IA
+├── RAPPORT_PROJET_BWAI2026.md          Rapport complet du projet (3 à 5 pages)
+├── AMELIORATIONS_ET_FONCTIONNALITES.md Détail des améliorations techniques et métier
+├── GUIDE_CODE_ET_DOSSIERS.md           Explication simple des dossiers et du code
+├── GUIDE_INTERFACE_ET_BOUTONS.md       Guide visuel des écrans et boutons de l'interface
+├── PRESENTATION_DIAPOSITIVES.md        Plan détaillé des diapositives pour le jury
 ├── database/
-│   ├── schema.sql              Tables, contraintes, triggers du journal
-│   └── db.py                   Connexions, transactions atomiques, initialisation
+│   ├── schema.sql                      Schéma SQLite, clés uniques et triggers d'audit
+│   └── db.py                           Connexions WAL et transactions BEGIN IMMEDIATE
 ├── models/
-│   ├── schemas.py              Validation Pydantic (import et API)
-│   └── repositories.py         Accès aux données, démo, cache, exceptions métier
+│   ├── schemas.py                      Schémas de validation Pydantic
+│   └── repositories.py                 Opérations en base, exports, gabarit et cache
 ├── services/
-│   ├── importer.py             Import et contrôle des données
-│   ├── calculator.py           Soldes, retards, statuts, rejeu
-│   ├── prioritizer.py          Score de priorité
-│   ├── reminder_engine.py      Relances, revue humaine, vérification avant envoi
-│   ├── payment_service.py      Paiements simulés
-│   ├── recovery_service.py     Reprise après interruption
-│   ├── ai_classifier.py        Classification des messages
-│   ├── benchmark_service.py    Comparaison à la référence, test de concurrence
-│   ├── audit_logger.py         Journal chaîné
-│   └── security.py             Authentification, rôles, masquage
-├── routes/                     Routes web et API
-├── frontend/                   Gabarits HTML, CSS, JavaScript
-├── data/                       Portefeuille de démo, jeux IA
-├── notebooks/                  Reproduction de l'évaluation IA
-└── tests/                      Tests automatisés
+│   ├── importer.py                     Import Excel/CSV et contrôles de cohérence
+│   ├── calculator.py                   Calculs Decimal exacts, statuts et rejeu SHA-256
+│   ├── prioritizer.py                  Calcul du score de priorité explicable
+│   ├── reminder_engine.py              Relances graduées, revue humaine et pré-envoi
+│   ├── payment_service.py              Paiements simulés idempotents et surpaiements
+│   ├── recovery_service.py             Reprise après coupure hors connexion
+│   ├── ai_classifier.py                Classifieur IA explicable et calibré
+│   ├── benchmark_service.py            Comparatif méthode manuelle et test 20 threads
+│   ├── audit_logger.py                 Journal chaîné SHA-256
+│   └── security.py                     Rôles RBAC, quatre yeux et masquage des contacts
+├── routes/
+│   ├── web_routes.py                   Pages HTML Jinja2
+│   └── api_routes.py                   Routes API REST
+├── frontend/
+│   ├── templates/                      dashboard.html et invoice_detail.html
+│   └── static/                         Feuille de style app.css et logique app.js
+├── data/                               demo_portfolio.xlsx, train.csv, test.csv
+├── notebooks/                          Notebook de reproduction de l'évaluation IA
+└── tests/                              50 tests automatisés pytest
 ```
 
-Les calculs sont dans `services/` et ne dépendent ni des routes ni de l'interface.
+## 11. Routes de l'API REST
 
-
-
-## 11. API REST
-
-Documentation complète : http://127.0.0.1:8000/docs. Routes principales :
-
-| Méthode | Route | Rôle minimal |
-|---|---|---|
-| GET | `/api/dashboard`, `/api/invoices`, `/api/invoices/{id}` | — |
-| POST | `/api/import/upload` | GESTIONNAIRE |
-| POST | `/api/import/errors/{id}/resolve` · DELETE `/api/import/errors/{id}` | GESTIONNAIRE |
-| POST | `/api/reminders/prepare-all`, `/api/reminders/prepare/{invoice_id}` | GESTIONNAIRE |
-| POST | `/api/review/{reminder_id}` | VALIDATEUR |
-| POST | `/api/reminders/{reminder_id}/send` | GESTIONNAIRE |
-| POST | `/api/payments/simulate` | GESTIONNAIRE |
-| POST | `/api/disputes` | GESTIONNAIRE |
-| POST | `/api/disputes/{id}/resolve`, `/api/credit-notes`, `/api/installment-plans` | VALIDATEUR |
-| GET / POST | `/api/settings` | — / VALIDATEUR |
-| POST | `/api/ai/classify` · GET `/api/ai/evaluation` | — |
-| POST | `/api/invoices/{id}/ai-override` | GESTIONNAIRE |
-| GET | `/api/benchmark` | — |
-| POST | `/api/system/replay`, `/api/system/concurrency-proof` | GESTIONNAIRE |
-| POST | `/api/system/recover` | VALIDATEUR |
-| GET | `/api/audit-logs`, `/api/audit-logs/verify` | — |
-| POST | `/api/system/reset-demo`, `/api/system/clear`, `/api/system/cache/restore`, `/api/system/emergency-stop` | ADMIN |
-
-Exemple :
-
-```bash
-curl -X POST http://127.0.0.1:8000/api/payments/simulate \
-  -H "X-API-Token: tok-gestionnaire-koffi" \
-  -H "Content-Type: application/json" \
-  -d '{"invoice_id": "FAC-2026-003", "montant": 50000, "reference_fictive": "MOMO-TEST-001"}'
-```
-
-
+| Méthode | Route | Rôle requis | Fonction |
+|---|---|---|---|
+| `GET` | `/api/dashboard`, `/api/invoices`, `/api/invoices/{id}` | Public (lecture) | Indicateurs, liste priorisée et détail d'un dossier |
+| `GET` | `/api/import/template.xlsx` | Public | Télécharger le gabarit Excel à 6 feuilles |
+| `POST` | `/api/import/upload` | `GESTIONNAIRE` | Importer un fichier Excel ou CSV |
+| `POST` / `DELETE` | `/api/import/errors/{id}/resolve`, `/api/import/errors/{id}` | `GESTIONNAIRE` | Corriger et réintégrer ou exclure une ligne rejetée |
+| `POST` | `/api/reminders/prepare-all`, `/api/reminders/prepare/{id}` | `GESTIONNAIRE` | Préparer les relances de façon idempotente |
+| `POST` | `/api/review/{reminder_id}` | `VALIDATEUR` | Approuver, modifier, suspendre ou rejeter (4 yeux) |
+| `POST` | `/api/reminders/{reminder_id}/send` | `GESTIONNAIRE` | Revérifier le dossier et simuler l'envoi |
+| `POST` | `/api/payments/simulate` | `GESTIONNAIRE` | Enregistrer un paiement Mobile Money simulé |
+| `POST` | `/api/webhooks/whatsapp-incoming` | Webhook local | Simuler la réception d'un message WhatsApp/SMS entrant |
+| `POST` | `/api/invoices/{id}/incoming-message` | `GESTIONNAIRE` | Simuler un message client entrant sur une facture |
+| `POST` | `/api/invoices/{id}/ai-override` | `GESTIONNAIRE` | Requalifier humainement un message client (Active Learning) |
+| `POST` | `/api/disputes`, `/api/disputes/{id}/resolve` | `GESTIONNAIRE` / `VALIDATEUR` | Ouvrir ou résoudre une contestation |
+| `POST` | `/api/credit-notes`, `/api/installment-plans` | `VALIDATEUR` | Émettre un avoir ou activer un échéancier |
+| `GET` / `POST` | `/api/settings` | Lecture / `VALIDATEUR` | Lire ou modifier les paramètres métier à chaud |
+| `GET` | `/api/export/portfolio.csv`, `/api/export/portfolio.json`, `/api/export/audit.csv` | Public (masqué) | Exporter le portefeuille priorisé et le journal d'audit |
+| `GET` | `/api/benchmark`, `/api/ai/evaluation` | Public | Comparatif méthode de référence et métriques IA |
+| `POST` | `/api/system/replay`, `/api/system/concurrency-proof` | `GESTIONNAIRE` | Rejeu SHA-256 et test en direct de 20 threads simultanés |
+| `POST` | `/api/system/recover` | `VALIDATEUR` | Reprise contrôlée après interruption |
+| `GET` | `/api/audit-logs`, `/api/audit-logs/verify` | Public | Consulter et vérifier la chaîne SHA-256 du journal |
+| `POST` | `/api/system/reset-demo`, `/api/system/clear`, `/api/system/cache/restore`, `/api/system/emergency-stop` | `ADMIN` | Administration, remise à zéro et arrêt d'urgence |
 
 ## 12. Tests automatisés
 
+Lancer la suite complète :
+
 ```bash
 source .venv/bin/activate
-pytest -q
+pytest -v
 ```
 
-Résultat attendu : **49 tests réussis** en une quinzaine de secondes. Chaque test utilise sa propre base temporaire : la base de démonstration n'est pas modifiée.
+Les **50 tests automatisés** couvrent les 12 cas obligatoires du guide (`T1` à `T12`), la concurrence à 20 threads simultanés, les invariants comptables en `Decimal`, l'évaluation hold-out de l'IA et le comparatif des 6 modèles ML, le contrôle d'accès RBAC, le principe des quatre yeux, l'immuabilité du journal SHA-256, les exports et la réception simulée de messages WhatsApp.
 
-| Fichier | Couverture |
-|---|---|
-| `test_step1_calculations.py` | T1 à T6 : soldes, retards, statuts, score |
-| `test_step2_ai.py` | Classification et seuil de confiance |
-| `test_step3_import.py` | T12 : ligne invalide et doublon |
-| `test_step4_payments.py` | T9 : paiement enregistré deux fois |
-| `test_step5_reminders_and_recovery.py` | T7, T8, T10, T11 |
-| `test_step6_api_e2e.py` | Parcours de bout en bout par l'API, exceptions, paramètres |
-| `test_step7_concurrency.py` | 20 threads simultanés sur envoi, paiement, préparation |
-| `test_step8_ai_evaluation.py` | Jeu de test séparé, calibration, garde-fous, explicabilité, reprise humaine |
-| `test_step9_security.py` | Rôles, quatre yeux, journal infalsifiable, masquage, arrêt d'urgence, failles corrigées |
-| `test_step10_reliability_and_users.py` | Surpaiement, invariants, rejeu SHA-256, délai entre relances, arithmétique exacte |
+## 13. Travail hors connexion et reprise après coupure
 
-Correspondance avec le plan de tests du guide :
-
-| Test | Fonction |
-|---|---|
-| T1 | `test_t1_facture_non_echue_solde_positif` |
-| T2 | `test_t2_facture_echue_aucun_paiement` |
-| T3 | `test_t3_paiement_partiel_et_avoir` |
-| T4 | `test_t4_paiement_total` |
-| T5 | `test_t5_facture_contestee`, `test_t5_disputed_invoice_goes_to_human_review_queue` |
-| T6 | `test_t6_echeancier_actif` |
-| T7 | `test_t7_montant_superieur_au_seuil_validation_humaine_obligatoire` |
-| T8 | `test_t8_preference_de_contact_incompatible_aucune_simulation_envoi` |
-| T9 | `test_t9_paiement_enregistre_deux_fois_une_seule_comptabilisation` |
-| T10 | `test_t10_double_clic_et_reprise_apres_interruption_sans_doublon` |
-| T11 | `test_t11_relance_preparee_puis_facture_reglee_annule_la_relance` |
-| T12 | `test_t12_ligne_import_invalide_et_doublon_non_integres_silencieusement` |
-
-
-
-## 13. Reprise après interruption
-
-1. Toutes les données sont dans la base SQLite locale. Une coupure réseau n'a aucun effet.
-2. Après chaque action, l'état est aussi copié dans `database/app_state_cache.json`.
-3. Si la base est perdue mais que le cache existe, le tableau de bord recharge l'état au démarrage. Le cache n'est accepté que si la chaîne SHA-256 du journal qu'il contient est intacte.
-4. Le bouton **Reprise hors ligne** recalcule le portefeuille et ne prépare que les relances qui n'existent pas encore. Les clés uniques empêchent tout doublon.
-
-
+L'application fonctionne sans Internet grâce à SQLite en mode WAL et à un fichier de cache local (`database/app_state_cache.json`). En cas d'arrêt brusque ou de coupure de courant, la réouverture de l'application restaure l'état après vérification de la chaîne SHA-256 du journal, et l'action **Reprise hors ligne** reprend uniquement les dossiers non traités sans jamais créer de doublon.
 
 ## 14. Dépendances et licences
 
-Versions utilisées lors des tests :
+Le code source du prototype est distribué sous licence **MIT** (voir le fichier [LICENSE](LICENSE)). Toutes les bibliothèques utilisées sont open source :
 
-| Bibliothèque | Version testée | Licence | Usage |
+| Bibliothèque | Version testée | Licence | Rôle |
 |---|---|---|---|
-| FastAPI | 0.165.0 | MIT | API et serveur web |
-| Starlette | 1.10.0 | BSD-3-Clause | Socle de FastAPI |
+| FastAPI / Starlette | 0.165.0 / 1.10.0 | MIT / BSD-3-Clause | Serveur web et API REST |
 | Uvicorn | 0.54.0 | BSD-3-Clause | Serveur ASGI |
-| Jinja2 | 3.1.6 | BSD-3-Clause | Gabarits HTML |
+| Jinja2 | 3.1.6 | BSD-3-Clause | Rendu des pages HTML |
 | Pydantic | 2.14.4 | MIT | Validation des données |
-| python-multipart | 0.0.34 | Apache-2.0 | Envoi de fichiers |
-| python-dotenv | 1.2.4 | BSD-3-Clause | Lecture de `.env` |
-| pandas | 3.1.1 | BSD-3-Clause | Lecture Excel et CSV |
-| openpyxl | 3.1.5 | MIT | Format `.xlsx` |
-| scikit-learn | 1.9.1 | BSD-3-Clause | Modèle de classification |
-| NumPy / SciPy | 2.5.5 / 1.18.1 | BSD-3-Clause | Dépendances de scikit-learn |
-| pytest | 9.2.0 | MIT | Tests |
-| httpx | 0.28.1 | BSD-3-Clause | Client de test FastAPI |
-
-- Aucun modèle pré-entraîné, aucun service payant, aucune API externe.
-- Base de données : SQLite (domaine public), incluse dans Python.
-- Données : portefeuille et messages entièrement fictifs. Méthode : [data/methode_generation_jeux.md](data/methode_generation_jeux.md).
-
-
+| python-multipart / python-dotenv | 0.0.34 / 1.2.4 | Apache-2.0 / BSD-3-Clause | Upload de fichiers |
+| pandas / openpyxl | 3.1.1 / 3.1.5 | BSD-3-Clause / MIT | Lecture et génération de fichiers Excel et CSV |
+| scikit-learn / NumPy / SciPy | 1.9.1 / 2.5.5 / 1.18.1 | BSD-3-Clause | Classification IA locale et métriques |
+| pytest / httpx | 9.2.0 / 0.28.1 | MIT / BSD-3-Clause | Exécution des tests automatisés |
 
 ## 15. Limites connues
 
-- **Authentification de démonstration.** Les jetons sont fixes et le menu Opérateur les contient dans la page. Il n'y a ni mot de passe, ni session, ni expiration.
-- **Données réduites et fictives.** 7 factures de démonstration, 350 messages rédigés à la main. Les performances de l'IA ne valent que pour ce corpus.
-- **Langues locales.** Les messages en fon, yoruba ou mina ne sont pas reconnus. Ils sont détectés comme hors vocabulaire et envoyés en revue humaine.
-- **Une relance par niveau et par facture.** Une relance rejetée ou annulée ne peut pas être recréée au même niveau.
-- **Échéanciers simplifiés.** Seule la prochaine échéance est suivie, pas le détail de chaque versement prévu.
-- **Envois et paiements simulés.** Aucune intégration réelle WhatsApp, SMS, e-mail ou Mobile Money.
-- **Mono-poste.** SQLite convient à un usage local. Un usage à plusieurs postes demanderait un serveur de base de données.
-- **Comparaison à la référence.** Le temps manuel de 210 s par dossier est une estimation, pas une mesure chronométrée auprès d'utilisateurs.
+- **Jetons de démonstration** : le sélecteur d'opérateur intégré à l'interface facilite les tests du jury mais devra être remplacé par une authentification nominative par session en usage réel.
+- **Communications et règlements simulés** : conformément au cahier des charges, aucun message réel n'est transmis aux opérateurs télécoms ou à WhatsApp.
+- **Corpus IA synthétique** : le modèle est entraîné sur 250 messages fictifs en français. Les messages en langues nationales (fon, yoruba, mina) ne sont pas traduits mais sont détectés comme hors vocabulaire et confiés à un gestionnaire humain.
+- **Base locale mono-poste** : SQLite est idéal pour un poste local hors connexion ; un déploiement multi-agences nécessitera PostgreSQL.
 
+## 16. Documentation du dépôt
 
-
-## 16. Documentation complémentaire
-
-| Document | Contenu |
-|---|---|
-| [FICHE_IA.md](FICHE_IA.md) | Modèle, données, évaluation, calibration, erreurs, limites |
-| [FIABILITE_METIER.md](FIABILITE_METIER.md) | Preuves de fiabilité : concurrence, invariants, rejeu |
-| [SECURITE_ET_MAITRISE.md](SECURITE_ET_MAITRISE.md) | Rôles, quatre yeux, journal, masquage, arrêt d'urgence |
-| [LIEN_FONCTIONNALITES_CODE.md](LIEN_FONCTIONNALITES_CODE.md) | Correspondance entre exigences et code |
-| [ETAPES_DEVELOPPEMENT_ET_TESTS.md](ETAPES_DEVELOPPEMENT_ET_TESTS.md) | Étapes de développement |
-| [data/methode_generation_jeux.md](data/methode_generation_jeux.md) | Construction des jeux de données IA |
-| [notebooks/reproduction_et_evaluation_ia.ipynb](notebooks/reproduction_et_evaluation_ia.ipynb) | Reproduction de l'évaluation IA |
+- [RAPPORT_PROJET_BWAI2026.md](RAPPORT_PROJET_BWAI2026.md) : rapport de synthèse (3 à 5 pages) pour le jury.
+- [FICHE_IA.md](FICHE_IA.md) : fiche technique et résultats détaillés du modèle IA.
+- [GUIDE_CODE_ET_DOSSIERS.md](GUIDE_CODE_ET_DOSSIERS.md) : explication simple de chaque dossier et des parties clés du code.
+- [GUIDE_INTERFACE_ET_BOUTONS.md](GUIDE_INTERFACE_ET_BOUTONS.md) : présentation visuelle des parties et boutons de l'interface.
+- [PRESENTATION_DIAPOSITIVES.md](PRESENTATION_DIAPOSITIVES.md) : structure et contenu page par page des diapositives de soutenance.
+- [AMELIORATIONS_ET_FONCTIONNALITES.md](AMELIORATIONS_ET_FONCTIONNALITES.md) : présentation des améliorations intégrées.
+- [LICENSE](LICENSE) : licence du projet et déclaration des composants tiers.

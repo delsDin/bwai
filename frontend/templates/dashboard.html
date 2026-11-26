@@ -160,6 +160,8 @@
                     <a href="/?statut=CONTESTEE" class="chip {% if current_filter == 'CONTESTEE' %}is-active{% endif %}">Contestées</a>
                     <a href="/?statut=COUVERTE_PAR_ECHEANCIER" class="chip {% if current_filter == 'COUVERTE_PAR_ECHEANCIER' %}is-active{% endif %}">Sous échéancier</a>
                     <a href="/?statut=SOLDEE" class="chip {% if current_filter == 'SOLDEE' %}is-active{% endif %}">Soldées</a>
+                    <a href="/api/export/portfolio.csv" class="btn btn-outline btn-sm" download>Exporter CSV</a>
+                    <a href="/api/export/portfolio.json" target="_blank" rel="noopener" class="btn btn-outline btn-sm">Exporter JSON</a>
                 </div>
             </div>
 
@@ -201,8 +203,16 @@
                             <td><span class="badge badge-{{ inv.statut_calcule }}">{{ inv.statut_calcule|replace('_', ' ')|capitalize }}</span></td>
                             <td>
                                 <div class="score-box">
-                                    <div style="display:flex; justify-content:space-between; font-size:0.78rem;">
+                                    <div style="display:flex; justify-content:space-between; font-size:0.78rem; gap:6px; align-items:center;">
+                                        {% if not inv.eligible_relance %}
+                                            {% if inv.statut_calcule == 'SOLDEE' %}
+                                            <strong style="color:var(--text-muted);">Hors classement (Soldée)</strong>
+                                            {% else %}
+                                            <strong style="color:var(--warning);">Hors classement (Suspendue)</strong>
+                                            {% endif %}
+                                        {% else %}
                                         <strong>Score : {{ "%.3f"|format(inv.score_priorite) }}</strong>
+                                        {% endif %}
                                         {% if inv.ai_categorie and inv.ai_categorie != 'AUCUN_MESSAGE' %}
                                         <span class="badge badge-CONTESTEE" style="font-size:0.68rem;">
                                             IA : {{ inv.ai_categorie }} ({{ "%.0f"|format((inv.ai_confiance or 0) * 100) }}%)
@@ -383,6 +393,9 @@
                     <p class="panel-subtitle">Sélectionnez un fichier Excel ou CSV. Les doublons et les lignes invalides figurent dans le journal des rejets.</p>
                 </div>
                 <form id="form-import-upload" style="display:flex; gap:0.5rem; align-items:center; flex-wrap:wrap;">
+                    <a href="/api/import/template.xlsx" class="btn btn-outline btn-sm" download>
+                        Télécharger le gabarit Excel (.xlsx)
+                    </a>
                     <input aria-label="Fichier de factures" type="file" id="import-file-input" accept=".xlsx,.xls,.csv" required style="font-size:0.8rem;">
                     <button type="submit" class="btn btn-primary btn-sm">Importer</button>
                 </form>
@@ -530,6 +543,9 @@
                     <h2 class="panel-title">Journal d’audit</h2>
                     <p class="panel-subtitle">Traçabilité nominative de chaque action, décision humaine et empreinte SHA-256</p>
                 </div>
+                <a href="/api/export/audit.csv" class="btn btn-outline btn-sm" download>
+                    Exporter le journal (CSV)
+                </a>
             </div>
 
             <div tabindex="0" role="region" aria-labelledby="caption-audit" class="table-wrapper">
@@ -659,6 +675,14 @@
                     <option value="SMS" {% if settings and settings.default_channel == 'SMS' %}selected{% endif %}>SMS</option>
                     <option value="EMAIL" {% if settings and settings.default_channel == 'EMAIL' %}selected{% endif %}>EMAIL</option>
                 </select>
+            </div>
+            <div class="form-field" style="display:flex; align-items:center; gap:0.5rem;">
+                <input type="checkbox" id="set-auto-prepare" {% if kpis.auto_prepare_reminders %}checked{% endif %} style="width:auto;">
+                <label for="set-auto-prepare" style="margin:0;">Préparer automatiquement les relances dès l'import ou la mise à jour des paramètres</label>
+            </div>
+            <div class="form-field" style="display:flex; align-items:center; gap:0.5rem;">
+                <input type="checkbox" id="set-enable-pre-due" {% if kpis.enable_pre_due_reminders %}checked{% endif %} style="width:auto;">
+                <label for="set-enable-pre-due" style="margin:0;">Activer les rappels courtois pré-échéance (J-3 à J-0 avant échéance)</label>
             </div>
             <div class="dialog-footer">
                 <button type="button" class="btn btn-outline" onclick="document.getElementById('dialog-settings').close()">Annuler</button>

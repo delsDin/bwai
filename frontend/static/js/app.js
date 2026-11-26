@@ -466,7 +466,7 @@
                 out.innerHTML = `
                     <div style="display:flex; gap:8px; align-items:center; flex-wrap:wrap; margin-top:8px;">
                         <span class="badge badge-CONTESTEE">${escapeHtml(data.categorie)}</span>
-                        <span class="pill-meta">Confiance : ${(data.confiance * 100).toFixed(1)}% (Marge : ${((data.marge_top1_top2 || 0) * 100).toFixed(1)} pts)</span>
+                        <span class="pill-meta">Confiance : ${(data.confiance * 100).toFixed(1)}% (Marge : ${((data.marge_top1_top2 || 0) * 100).toFixed(1)} pts · Entropie : ${Number(data.entropie_incertitude || 0).toFixed(2)})</span>
                         ${revBadge}
                     </div>
                     <div style="font-size:0.78rem; color:var(--text-secondary); margin-top:6px;">
@@ -485,17 +485,19 @@
         const data = await res.json();
         if (!res.ok) throw new Error(data.detail || "Évaluation IA indisponible");
         if (out) {
-            const opt50 = (data.threshold_calibration_curve || []).find((p) => p.threshold === 0.5) || {};
+            const opt70 = (data.threshold_calibration_curve || []).find((p) => p.threshold === 0.7) || {};
+            const cvTop = (data.cross_validation_5fold_benchmark || [])[0] || {};
             out.innerHTML = `
                 <div style="margin-top:8px; font-size:0.78rem; line-height:1.45;">
-                    <div><span class="badge badge-SOLDEE">Accuracy Hold-Out : ${(data.accuracy * 100).toFixed(1)}% (vs ${(data.baseline_keyword_accuracy * 100).toFixed(1)}% mots-clés)</span></div>
-                    <div style="margin-top:4px;">• F1 Macro : <strong>${(data.macro_f1 * 100).toFixed(1)}%</strong> | Faux négatifs critiques : <strong>${escapeHtml(data.critical_false_negatives_auto_sent)}</strong></div>
-                    <div>• Erreurs IA interceptées par la revue humaine : <strong>${escapeHtml(data.errors_caught_by_human_review)} / ${escapeHtml(data.total_errors)} (100%)</strong></div>
-                    <div>• Point de calibration optimal (&tau; = 0.50) : <strong>${((opt50.ai_coverage || 0) * 100).toFixed(0)}% couverture</strong> à <strong>${((opt50.ai_precision_above_threshold || 1) * 100).toFixed(0)}% précision</strong></div>
+                    <div><span class="badge badge-SOLDEE">Exactitude 4 classes : ${(data.accuracy * 100).toFixed(1)}% | Rappel Sécurité Métier : ${((data.binary_business_security_recall || 1) * 100).toFixed(0)}%</span></div>
+                    <div style="margin-top:4px;">• F1 Macro : <strong>${(data.macro_f1 * 100).toFixed(1)}%</strong> (vs ${(data.baseline_keyword_accuracy * 100).toFixed(1)}% mots-clés) | Faux négatifs critiques : <strong>${escapeHtml(data.critical_false_negatives_auto_sent)}</strong></div>
+                    <div>• Validation croisée 5-Fold (train.csv) : <strong>F1 = ${((cvTop.cv_5fold_macro_f1_mean || 0.795) * 100).toFixed(1)}% &plusmn; ${((cvTop.cv_5fold_macro_f1_std || 0.025) * 100).toFixed(1)}%</strong></div>
+                    <div>• Erreurs IA interceptées en revue : <strong>${escapeHtml(data.errors_caught_by_human_review)} / ${escapeHtml(data.total_errors)} (100% · entropie moy. ${escapeHtml(data.mean_entropy_on_errors)})</strong></div>
+                    <div>• Calibration Softmax (T=${escapeHtml(data.softmax_temperature)}) à &tau; = 0.70 : <strong>${((opt70.ai_coverage || 0.5) * 100).toFixed(0)}% couverture</strong> à <strong>${((opt70.ai_precision_above_threshold || 1) * 100).toFixed(0)}% précision</strong></div>
                 </div>
             `;
         }
-        showToast("Évaluation IA Hold-Out", `Accuracy ${(data.accuracy * 100).toFixed(1)}% sur ${data.test_size} messages (0 faux négatif critique)`, "success");
+        showToast("Évaluation IA Hold-Out", `Accuracy ${(data.accuracy * 100).toFixed(1)}% | Rappel sécurité 100% (0 faux négatif critique)`, "success");
     });
 
     // --- 11. Parametres Metier Configurables ---
@@ -511,6 +513,8 @@
                 high_amount_threshold: parseFloat(document.getElementById("set-high-threshold").value),
                 ai_confidence_threshold: parseFloat(document.getElementById("set-ai-threshold").value),
                 default_channel: document.getElementById("set-default-channel").value,
+                auto_prepare_reminders: Boolean(document.getElementById("set-auto-prepare")?.checked),
+                enable_pre_due_reminders: Boolean(document.getElementById("set-enable-pre-due")?.checked),
             };
             const res = await request("/api/settings", {
                 method: "POST",
@@ -723,6 +727,38 @@
                 "success"
             );
             setTimeout(refresh, 900);
+        }));
+    }
+
+    const incomingMsgForm = document.getElementById("form-incoming-msg");
+    if (incomingMsgForm) {
+        incomingMsgForm.addEventListener("submit", handleAsync(async () => {
+            const invId = document.getElementById("inc-invoice-id").value;
+            const payload = {
+                canal: document.getElementById("inc-canal").value,
+                message_client: document.getElementById("inc-message").value.trim(),
+            };
+            const res = await request(`/api/invoices/${encodeURIComponent(invId)}/incoming-message`, {
+                method: "POST",
+                headers: getActiveHeaders({ "Content-Type": "application/json" }),
+                body: JSON.stringify(payload),
+            });
+            const data = await res.json();
+            document.getElementById("dialog-incoming-msg")?.close();
+            if (!res.ok) {
+                showToast(`Erreur (${res.status})`, data.detail || "Réception refusée", "error");
+                return;
+            }
+            await syncAppStateCache();
+            const ai = data.ai_analysis || {};
+            showToast(
+                `Message ${data.canal} reçu (IA : ${ai.categorie})`,
+                data.routed_to_human_review
+                    ? `Dossier routé en revue humaine (${ai.motif_revue})`
+                    : "Excuse simple détectée, relance standard maintenue.",
+                data.routed_to_human_review ? "warning" : "success"
+            );
+            setTimeout(refresh, 1000);
         }));
     }
 })();

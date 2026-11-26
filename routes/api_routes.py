@@ -7,6 +7,7 @@ import tempfile
 from typing import Any, Dict, Optional
 
 from fastapi import APIRouter, Body, Depends, HTTPException, UploadFile, File
+from fastapi.responses import Response
 
 from models.repositories import (
     clear_all_portfolio_data,
@@ -14,6 +15,10 @@ from models.repositories import (
     create_dispute,
     create_installment_plan,
     dismiss_import_error,
+    export_audit_logs_csv,
+    export_portfolio_csv,
+    export_portfolio_data,
+    generate_import_template_xlsx_bytes,
     get_dashboard_kpis,
     get_invoice_detail,
     get_settings,
@@ -23,6 +28,7 @@ from models.repositories import (
     list_reminders,
     list_users,
     override_invoice_ai_classification,
+    receive_simulated_incoming_message,
     reset_and_load_demo_portfolio,
     resolve_dispute,
     resolve_import_error,
@@ -41,7 +47,9 @@ from models.schemas import (
     HumanReviewDecisionRequest,
     ImportErrorResolveRequest,
     InstallmentPlanCreateRequest,
+    InvoiceIncomingMessageRequest,
     SettingsUpdateRequest,
+    SimulatedIncomingMessageRequest,
     SimulatedPaymentRequest,
 )
 from services.ai_classifier import classifier_singleton
@@ -385,8 +393,84 @@ def api_update_settings(
         high_amount_threshold=payload.high_amount_threshold,
         ai_confidence_threshold=payload.ai_confidence_threshold,
         default_channel=payload.default_channel.value,
+        auto_prepare_reminders=payload.auto_prepare_reminders,
+        enable_pre_due_reminders=payload.enable_pre_due_reminders,
         acteur=actor["username"],
     )
+
+
+@router.get("/import/template.xlsx")
+def api_download_import_template_xlsx():
+    xlsx_bytes = generate_import_template_xlsx_bytes()
+    return Response(
+        content=xlsx_bytes,
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={"Content-Disposition": 'attachment; filename="gabarit_portefeuille_bwai2026.xlsx"'},
+    )
+
+
+@router.get("/export/portfolio.csv")
+def api_export_portfolio_csv():
+    csv_text = export_portfolio_csv()
+    return Response(
+        content=csv_text.encode("utf-8-sig"),
+        media_type="text/csv; charset=utf-8",
+        headers={"Content-Disposition": 'attachment; filename="portefeuille_priorise_bwai2026.csv"'},
+    )
+
+
+@router.get("/export/portfolio.json")
+def api_export_portfolio_json():
+    return export_portfolio_data()
+
+
+@router.get("/export/audit.csv")
+def api_export_audit_csv():
+    csv_text = export_audit_logs_csv()
+    return Response(
+        content=csv_text.encode("utf-8-sig"),
+        media_type="text/csv; charset=utf-8",
+        headers={"Content-Disposition": 'attachment; filename="journal_audit_sha256_bwai2026.csv"'},
+    )
+
+
+@router.post("/webhooks/whatsapp-incoming")
+def api_simulated_whatsapp_incoming_webhook(
+    payload: SimulatedIncomingMessageRequest,
+):
+    """
+    Route de reception simulee d'un message WhatsApp/SMS entrant (100 % hors-ligne, sans connexion externe).
+    Rattache le message a la facture ou au client expediteur, lance la classification IA explicable
+    et bascule la relance en file de revue humaine si un litige ou une incertitude est detecte.
+    """
+    try:
+        return receive_simulated_incoming_message(
+            message_client=payload.message_client,
+            canal=payload.canal.value,
+            invoice_id=payload.invoice_id,
+            expediteur=payload.expediteur,
+            acteur="WEBHOOK_WHATSAPP_SIMULE",
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@router.post("/invoices/{invoice_id}/incoming-message")
+def api_simulated_invoice_incoming_message(
+    invoice_id: str,
+    payload: InvoiceIncomingMessageRequest,
+    actor: Dict[str, str] = Depends(require_roles("GESTIONNAIRE", "VALIDATEUR", "ADMIN")),
+):
+    """Simule la reception d'une reponse WhatsApp/SMS/Email d'un client directement sur une facture."""
+    try:
+        return receive_simulated_incoming_message(
+            message_client=payload.message_client,
+            canal=payload.canal.value,
+            invoice_id=invoice_id,
+            acteur=actor["username"],
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
 
 
 @router.post("/disputes")

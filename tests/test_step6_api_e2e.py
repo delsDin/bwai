@@ -412,3 +412,111 @@ def test_complete_business_journey_benchmark_settings_exceptions_and_error_resol
     assert res_plan.status_code == 200
     assert res_plan.json()["statut_calcule"] == "COUVERTE_PAR_ECHEANCIER"
 
+
+def test_validated_small_features_template_exports_whatsapp_webhook_and_auto_settings(client: TestClient):
+    """
+    Verifie les petites fonctionnalites metier validees :
+    1. Gabarit Excel telechargeable (GET /api/import/template.xlsx) et re-importable sans erreur.
+    2. Exports CSV et JSON du portefeuille (avec contacts masques) et export CSV du journal d'audit.
+    3. Reception simulee de message WhatsApp entrant (POST /api/webhooks/whatsapp-incoming et
+       POST /api/invoices/{id}/incoming-message) basculant automatiquement une relance approuvee en revue humaine.
+    4. Parametres auto_prepare_reminders et enable_pre_due_reminders + messages adaptes par canal (SMS, EMAIL, WHATSAPP).
+    """
+    admin_headers = {"X-API-Token": "tok-admin-direction"}
+    val_headers = {"X-API-Token": "tok-validateur-amina"}
+    gest_headers = {"X-API-Token": "tok-gestionnaire-koffi"}
+
+    # 1. Telechargement du gabarit Excel (.xlsx) et import direct
+    tpl_res = client.get("/api/import/template.xlsx")
+    assert tpl_res.status_code == 200
+    assert "spreadsheetml" in tpl_res.headers.get("content-type", "")
+    assert len(tpl_res.content) > 1000
+
+    up_tpl = client.post(
+        "/api/import/upload",
+        headers=gest_headers,
+        files={"file": ("gabarit.xlsx", tpl_res.content, "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")},
+    )
+    assert up_tpl.status_code == 200
+    assert up_tpl.json()["total_rejected"] == 0
+    assert up_tpl.json()["accepted_counts"]["invoices"] == 2
+
+    # Chargement du portefeuille de demo complet
+    client.post("/api/system/reset-demo", headers=admin_headers)
+
+    # 2. Verification des exports CSV et JSON (minimisation des donnees : contact_masque present, contact_simule absent)
+    csv_port = client.get("/api/export/portfolio.csv")
+    assert csv_port.status_code == 200
+    assert "FAC-2026-002" in csv_port.text
+    assert "+22997****22" in csv_port.text
+    assert "+22997001122" not in csv_port.text
+
+    json_port = client.get("/api/export/portfolio.json")
+    assert json_port.status_code == 200
+    j_data = json_port.json()
+    assert j_data["export_type"] == "BWAI_2026_PORTFOLIO_EXPORT"
+    assert all("contact_simule" not in inv and "contact_masque" in inv for inv in j_data["invoices"])
+
+    csv_audit = client.get("/api/export/audit.csv")
+    assert csv_audit.status_code == 200
+    assert "entry_hash" in csv_audit.text
+
+    # 3. Reception simulee d'un message WhatsApp entrant sur FAC-2026-003 (dont la relance etait APPROUVEE)
+    rems_before = {r["invoice_id"]: r for r in client.get("/api/reminders").json()["reminders"]}
+    assert rems_before["FAC-2026-003"]["statut_action"] == "APPROUVEE"
+
+    # Webhook entrant par numero/contact expediteur (+22996112233 = CLI-02 -> FAC-2026-003)
+    wh_res = client.post(
+        "/api/webhooks/whatsapp-incoming",
+        json={
+            "expediteur": "+22996112233",
+            "canal": "WHATSAPP",
+            "message_client": "Bonjour les cartons livres sont endommages nous contestons le solde de cette facture",
+        },
+    )
+    assert wh_res.status_code == 200
+    wh_data = wh_res.json()
+    assert wh_data["simulated"] is True
+    assert wh_data["invoice_id"] == "FAC-2026-003"
+    assert wh_data["ai_analysis"]["categorie"] == "LITIGE"
+    assert wh_data["routed_to_human_review"] is True
+    assert wh_data["suspended_existing_reminders"] == 1
+
+    rems_after = {r["invoice_id"]: r for r in client.get("/api/reminders").json()["reminders"]}
+    assert rems_after["FAC-2026-003"]["statut_action"] == "EN_ATTENTE_VALIDATION"
+
+    # Route directe par facture : POST /api/invoices/{invoice_id}/incoming-message
+    inc_res = client.post(
+        "/api/invoices/FAC-2026-002/incoming-message",
+        headers=gest_headers,
+        json={
+            "canal": "SMS",
+            "message_client": "J'ai deja effectue le virement bancaire ce matin merci de verifier",
+        },
+    )
+    assert inc_res.status_code == 200
+    assert inc_res.json()["ai_analysis"]["categorie"] == "ANNONCE_PAIEMENT"
+    assert inc_res.json()["routed_to_human_review"] is True
+
+    # 4. Activation de auto_prepare_reminders et enable_pre_due_reminders (FAC-2026-001 arrive a echeance le 2026-03-25 -> a J-2 le 2026-03-23)
+    set_res = client.post(
+        "/api/settings",
+        headers=val_headers,
+        json={
+            "reference_date": "2026-03-23",
+            "high_amount_threshold": 500000.0,
+            "ai_confidence_threshold": 0.75,
+            "default_channel": "WHATSAPP",
+            "auto_prepare_reminders": True,
+            "enable_pre_due_reminders": True,
+        },
+    )
+    assert set_res.status_code == 200
+    # FAC-2026-001 (client EMAIL, echeance 2026-03-25, ref 2026-03-23 = J-2) a recu automatiquement un RAPPEL_PRE_ECHEANCE adapte au canal EMAIL
+    rems_all = {r["invoice_id"]: r for r in client.get("/api/reminders").json()["reminders"]}
+    assert "FAC-2026-001" in rems_all
+    assert rems_all["FAC-2026-001"]["niveau_relance"] == "RAPPEL_PRE_ECHEANCE"
+    assert "[EMAIL DEMO" in rems_all["FAC-2026-001"]["contenu_message"]
+    assert "[SMS DEMO]" in rems_all["FAC-2026-003"]["contenu_message"]
+
+

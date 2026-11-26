@@ -136,6 +136,8 @@ class SettingsUpdateRequest(BaseModel):
     high_amount_threshold: float = Field(..., gt=0, description="Seuil de gros montant en FCFA")
     ai_confidence_threshold: float = Field(..., ge=0.1, le=1.0, description="Seuil de confiance IA entre 0.10 et 1.00")
     default_channel: ChannelEnum = ChannelEnum.WHATSAPP
+    auto_prepare_reminders: bool = Field(False, description="Preparer automatiquement les relances apres import ou modification")
+    enable_pre_due_reminders: bool = Field(False, description="Activer les rappels courtois pre-echeance (J-3 a J-0)")
 
 
 class DisputeCreateRequest(BaseModel):
@@ -173,6 +175,19 @@ class AIOverrideRequest(BaseModel):
         description="Qualification retenue par l'operateur humain apres reprise sur l'IA",
     )
     motif: str = Field("Reprise humaine et requalification du message client", min_length=3)
+
+
+class SimulatedIncomingMessageRequest(BaseModel):
+    invoice_id: Optional[str] = Field(None, description="Identifiant de la facture concernee (optionnel si expediteur fourni)")
+    expediteur: Optional[str] = Field(None, description="Numero WhatsApp/SMS ou identifiant du client expediteur")
+    canal: ChannelEnum = ChannelEnum.WHATSAPP
+    message_client: str = Field(..., min_length=2, description="Contenu du message WhatsApp/SMS entrant simule")
+
+
+class InvoiceIncomingMessageRequest(BaseModel):
+    canal: ChannelEnum = ChannelEnum.WHATSAPP
+    message_client: str = Field(..., min_length=2, description="Contenu du message entrant simule sur cette facture")
+
 
 
 

@@ -37,13 +37,23 @@ def build_personalized_message(
     solde_restant: float,
     devise: str,
     niveau_relance: str,
+    canal: str = "WHATSAPP",
 ) -> str:
     """
-    Construit un message courtois personnalise (Module G) avec mention explicite du caractere fictif
-    du lien Mobile Money et du message de demonstration.
+    Construit un message courtois personnalise adapte au canal (WHATSAPP, SMS court, EMAIL avec objet - Module G)
+    avec mention explicite du caractere fictif du lien Mobile Money et du message de demonstration.
     """
     ref_momo_fictive = f"MOMO-DEMO-{invoice_id}"
     solde_fmt = f"{solde_restant:,.0f}".replace(",", " ")
+    canal_upper = (canal or "WHATSAPP").strip().upper()
+
+    if canal_upper == "SMS":
+        return (
+            f"[SMS DEMO] Bonjour {nom_client}, facture {invoice_id} (echeance {date_echeance}) : "
+            f"solde restant verifie de {solde_fmt} {devise}. "
+            f"Reference Mobile Money fictive (SIMULATION UNIQUEMENT) : {ref_momo_fictive}. "
+            f"Ceci est un message de demonstration."
+        )
 
     if niveau_relance == "RAPPEL_PRE_ECHEANCE":
         intro = f"Bonjour {nom_client}, nous vous rappelons courtoisement que la facture {invoice_id} arrivera a echeance le {date_echeance}"
@@ -52,8 +62,9 @@ def build_personalized_message(
     else:
         intro = f"Bonjour {nom_client}, malgre notre precedent rappel, la facture {invoice_id} (echeance du {date_echeance})"
 
+    prefix = f"[EMAIL DEMO - Objet : Suivi facture {invoice_id}] " if canal_upper == "EMAIL" else ""
     return (
-        f"{intro} presente un solde restant verifie de {solde_fmt} {devise}. "
+        f"{prefix}{intro} presente un solde restant verifie de {solde_fmt} {devise}. "
         f"Reference Mobile Money fictive (SIMULATION UNIQUEMENT) : {ref_momo_fictive}. "
         f"Si votre reglement a deja ete effectue, merci d'ignorer ce message et de nous transmettre la reference. "
         f"Ceci est un message de demonstration."
@@ -63,7 +74,7 @@ def build_personalized_message(
 def prepare_reminder_for_invoice(
     invoice_id: str,
     requested_channel: Optional[str] = None,
-    enable_pre_due_reminder: bool = False,
+    enable_pre_due_reminder: Optional[bool] = None,
     db_path: Path | None = None,
     acteur: str = "SYSTEME",
 ) -> Dict[str, Any]:
@@ -87,6 +98,12 @@ def prepare_reminder_for_invoice(
 
         row_ai = conn.execute("SELECT value FROM settings WHERE key = 'ai_confidence_threshold'").fetchone()
         ai_threshold = float(row_ai["value"]) if row_ai else config.DEFAULT_AI_CONFIDENCE_THRESHOLD
+
+        if enable_pre_due_reminder is None:
+            row_pre = conn.execute("SELECT value FROM settings WHERE key = 'enable_pre_due_reminders'").fetchone()
+            pre_due_enabled = (row_pre["value"] == "1") if row_pre else False
+        else:
+            pre_due_enabled = bool(enable_pre_due_reminder)
 
         inv = conn.execute(
             """
@@ -117,7 +134,7 @@ def prepare_reminder_for_invoice(
             niveau = "RELANCE_1" if jours_retard < config.SECOND_REMINDER_THRESHOLD_DAYS else "RELANCE_2"
         else:
             niveau = determine_reminder_level(jours_retard, date_ech, ref_date)
-            if niveau == "RAPPEL_PRE_ECHEANCE" and not enable_pre_due_reminder:
+            if niveau == "RAPPEL_PRE_ECHEANCE" and not pre_due_enabled:
                 return {"status": "SKIPPED", "reason": "Facture non echue (rappel pre-echeance desactive)."}
             if niveau is None:
                 return {"status": "SKIPPED", "reason": "Facture non echue, pas de relance de retard."}
@@ -161,6 +178,7 @@ def prepare_reminder_for_invoice(
             solde_restant=solde,
             devise=str(inv["devise"]),
             niveau_relance=niveau,
+            canal=canal,
         )
 
         idempotency_key = f"IDEMP-{invoice_id}-{niveau}"

@@ -336,6 +336,16 @@ def import_portfolio_dict(
     # Recalcul deterministe de tout le portefeuille importe
     recalculate_all_invoices(db_path=db_path)
 
+    # Si l'option de preparation automatique des relances est activee en base, prepare les relances sans clic manuel
+    auto_prepared_count = 0
+    with db_session(db_path) as conn:
+        row_auto = conn.execute("SELECT value FROM settings WHERE key = 'auto_prepare_reminders'").fetchone()
+        auto_enabled = (row_auto["value"] == "1") if row_auto else False
+    if auto_enabled:
+        from services.reminder_engine import prepare_all_reminders
+        prep_res = prepare_all_reminders(db_path=db_path, acteur=acteur)
+        auto_prepared_count = sum(1 for r in prep_res if r.get("status") == "CREATED")
+
     total_accepted = sum(accepted_counts.values())
     total_rejected = len(rejected_rows)
 
@@ -345,7 +355,7 @@ def import_portfolio_dict(
         objet_type="BATCH",
         objet_id=batch_id,
         ancienne_valeur=None,
-        nouvelle_valeur=f"Acceptees={total_accepted}, Rejetees={total_rejected}, Doublons={duplicate_count}",
+        nouvelle_valeur=f"Acceptees={total_accepted}, Rejetees={total_rejected}, Doublons={duplicate_count}, RelancesAuto={auto_prepared_count}",
         motif="Importation et controle des donnees",
         db_path=db_path,
     )
@@ -356,6 +366,7 @@ def import_portfolio_dict(
         "total_accepted": total_accepted,
         "total_rejected": total_rejected,
         "duplicate_count": duplicate_count,
+        "auto_prepared_reminders": auto_prepared_count,
         "errors": rejected_rows,
     }
 
