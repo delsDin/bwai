@@ -2,9 +2,11 @@
 Couche d'acces aux donnees SQLite (Repositories) et jeu de donnees fictif de demonstration.
 Toutes les requetes sont parametrees pour garantir la securite et l'integrite.
 """
+import json
 from pathlib import Path
 from typing import Any, Dict, List
 
+import config
 from database.db import db_session, init_db
 from services.importer import import_portfolio_dict
 from services.reminder_engine import prepare_all_reminders
@@ -169,28 +171,150 @@ DEMO_PORTFOLIO_DATA: Dict[str, List[Dict[str, Any]]] = {
 }
 
 
-def reset_and_load_demo_portfolio(db_path: Path | None = None) -> Dict[str, Any]:
-    """Reinitialise toutes les tables SQLite et charge le portefeuille fictif de demonstration."""
+PORTFOLIO_TABLES = (
+    "reminders",
+    "disputes",
+    "installment_plans",
+    "credit_notes",
+    "payments",
+    "invoices",
+    "clients",
+    "import_errors",
+    "audit_logs",
+)
+
+
+def _get_cache_path(db_path: Path | None = None) -> Path:
+    target_db = db_path or config.DATABASE_PATH
+    return target_db.parent / "app_state_cache.json"
+
+
+def save_app_state_cache(db_path: Path | None = None) -> Dict[str, Any]:
+    """
+    Sauvegarde dans un fichier de cache JSON (et retourne) l'etat complet de l'application
+    apres une importation ou une action utilisateur. Permet de recharger automatiquement
+    les donnees si l'utilisateur quitte l'application sans avoir efface les donnees.
+    """
+    init_db(db_path)
+    snapshot: Dict[str, Any] = {"has_active_data": False, "tables": {}}
+    with db_session(db_path) as conn:
+        for table in (
+            "clients",
+            "invoices",
+            "payments",
+            "credit_notes",
+            "installment_plans",
+            "disputes",
+            "reminders",
+            "import_errors",
+            "audit_logs",
+            "settings",
+        ):
+            rows = conn.execute(f"SELECT * FROM {table}").fetchall()
+            snapshot["tables"][table] = [dict(r) for r in rows]
+
+    has_data = (
+        len(snapshot["tables"].get("invoices", [])) > 0
+        or len(snapshot["tables"].get("clients", [])) > 0
+        or len(snapshot["tables"].get("import_errors", [])) > 0
+    )
+    snapshot["has_active_data"] = has_data
+
+    cache_file = _get_cache_path(db_path)
+    if has_data:
+        cache_file.parent.mkdir(parents=True, exist_ok=True)
+        cache_file.write_text(json.dumps(snapshot, ensure_ascii=False, indent=2), encoding="utf-8")
+    elif cache_file.exists():
+        cache_file.unlink()
+
+    return snapshot
+
+
+def restore_from_app_state_cache(
+    snapshot: Dict[str, Any] | None = None,
+    db_path: Path | None = None,
+) -> bool:
+    """
+    Restaure l'etat de l'application depuis le cache (fichier local ou payload JSON du navigateur)
+    si la base est vide et que l'utilisateur n'avait pas efface ses donnees.
+    """
+    init_db(db_path)
+    data = snapshot
+    if data is None:
+        cache_file = _get_cache_path(db_path)
+        if not cache_file.exists():
+            return False
+        try:
+            data = json.loads(cache_file.read_text(encoding="utf-8"))
+        except Exception:
+            return False
+
+    if not data or not data.get("has_active_data"):
+        return False
+
+    tables = data.get("tables", {})
+    with db_session(db_path) as conn:
+        conn.execute("UPDATE settings SET value = '1' WHERE key = 'allow_audit_reset'")
+        for table in PORTFOLIO_TABLES:
+            conn.execute(f"DELETE FROM {table}")
+
+        for table in (
+            "clients",
+            "invoices",
+            "payments",
+            "credit_notes",
+            "installment_plans",
+            "disputes",
+            "reminders",
+            "import_errors",
+            "audit_logs",
+        ):
+            rows = tables.get(table, [])
+            for row in rows:
+                cols = list(row.keys())
+                placeholders = ", ".join("?" for _ in cols)
+                col_names = ", ".join(cols)
+                conn.execute(
+                    f"INSERT OR REPLACE INTO {table} ({col_names}) VALUES ({placeholders})",
+                    tuple(row[c] for c in cols),
+                )
+        conn.execute("UPDATE settings SET value = '0' WHERE key = 'allow_audit_reset'")
+
+    save_app_state_cache(db_path=db_path)
+    return True
+
+
+def clear_all_portfolio_data(db_path: Path | None = None) -> Dict[str, Any]:
+    """
+    Vide toutes les donnees (factures, clients, paiements, relances, erreurs, journal)
+    et supprime le cache pour reprendre a zero.
+    """
     init_db(db_path)
     with db_session(db_path) as conn:
         conn.execute("UPDATE settings SET value = '1' WHERE key = 'allow_audit_reset'")
         conn.execute("UPDATE settings SET value = '0' WHERE key = 'emergency_stop'")
-        for table in (
-            "reminders",
-            "disputes",
-            "installment_plans",
-            "credit_notes",
-            "payments",
-            "invoices",
-            "clients",
-            "import_errors",
-            "audit_logs",
-        ):
+        for table in PORTFOLIO_TABLES:
             conn.execute(f"DELETE FROM {table}")
         conn.execute("UPDATE settings SET value = '0' WHERE key = 'allow_audit_reset'")
 
+    cache_file = _get_cache_path(db_path)
+    if cache_file.exists():
+        cache_file.unlink()
+
+    return {
+        "status": "CLEARED",
+        "total_factures": 0,
+        "cache_cleared": True,
+        "message": "Toutes les donnees et le cache ont ete effaces. Importez un fichier pour commencer.",
+    }
+
+
+def reset_and_load_demo_portfolio(db_path: Path | None = None) -> Dict[str, Any]:
+    """Reinitialise toutes les tables SQLite, charge le portefeuille fictif de demonstration et met a jour le cache."""
+    clear_all_portfolio_data(db_path)
     import_res = import_portfolio_dict(DEMO_PORTFOLIO_DATA, db_path=db_path)
     reminders_res = prepare_all_reminders(db_path=db_path)
+    save_app_state_cache(db_path=db_path)
     return {
         "import_summary": import_res,
         "reminders_prepared": len([r for r in reminders_res if r.get("status") == "CREATED"]),

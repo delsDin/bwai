@@ -149,7 +149,80 @@
         }
     }
 
-    // --- 5. Appels API generiques ---
+    // --- 5. Cache persistant de l'etat de l'application (Serveur + Navigateur) & Appels API ---
+    const APP_CACHE_KEY = "bwai_app_state_cache_v1";
+
+    async function syncAppStateCache() {
+        if (window.bwaiDemo) return;
+        try {
+            const res = await request("/api/system/cache");
+            if (!res.ok) return;
+            const snapshot = await res.json();
+            if (snapshot && snapshot.has_active_data) {
+                storage("localStorage", APP_CACHE_KEY, JSON.stringify(snapshot));
+            }
+        } catch {
+            // Ignore cache sync errors silently
+        }
+    }
+
+    async function autoRestoreCachedStateIfNeeded() {
+        if (window.bwaiDemo) return;
+        const hasServerData = document.body?.dataset?.hasData === "true";
+        if (hasServerData) {
+            await syncAppStateCache();
+            return;
+        }
+        const rawCache = storage("localStorage", APP_CACHE_KEY);
+        if (!rawCache) return;
+        try {
+            const snapshot = JSON.parse(rawCache);
+            if (!snapshot || !snapshot.has_active_data) return;
+            const res = await request("/api/system/cache/restore", {
+                method: "POST",
+                headers: getActiveHeaders({ "Content-Type": "application/json" }),
+                body: JSON.stringify(snapshot),
+            });
+            if (res.ok) {
+                const data = await res.json();
+                if (data.restored) {
+                    showToast("Session restaurée", "Vos données importées ont été rechargées depuis le cache.", "success");
+                    setTimeout(refresh, 500);
+                }
+            }
+        } catch {
+            // Ignore restore errors
+        }
+    }
+
+    window.openImportTab = function () {
+        const importTab = document.getElementById("tab-import");
+        if (importTab) {
+            importTab.click();
+            document.getElementById("import-file-input")?.focus();
+        }
+    };
+
+    window.clearAllData = handleAsync(async () => {
+        const res = await request("/api/system/clear", {
+            method: "POST",
+            headers: getActiveHeaders(),
+        });
+        const data = await res.json();
+        if (!res.ok) {
+            showToast(`Erreur HTTP ${res.status}`, data.detail || "Impossible d'effacer les données", "error");
+            return;
+        }
+        try {
+            window.localStorage.removeItem(APP_CACHE_KEY);
+            window.localStorage.removeItem("bwai-offline-demo-v1");
+        } catch {
+            // Ignore localStorage removal errors
+        }
+        showToast("Remise à zéro effectuée", data.message || "Toutes les données et le cache ont été effacés.", "warning");
+        setTimeout(refresh, 800);
+    });
+
     window.callApiAction = async function (url, reloadAfter = true) {
         try {
             const res = await request(url, {
@@ -161,6 +234,7 @@
                 showToast(`Erreur HTTP ${res.status}`, data.detail || "Action refusée", "error");
                 return;
             }
+            await syncAppStateCache();
             const summary = data.reason || data.message || data.status || "Opération effectuée";
             const toastType =
                 typeof data.status === "string" && (data.status.includes("BLOCKED") || data.status.includes("CANCELLED") || data.status.includes("MIN_DELAY"))
@@ -174,6 +248,8 @@
             showToast("Erreur réseau", String(err), "error");
         }
     };
+
+    autoRestoreCachedStateIfNeeded();
 
     // --- 6. Modale de Paiement Simule ---
     const payDialog = document.getElementById("dialog-payment");
@@ -212,6 +288,7 @@
             } else {
                 showToast("Paiement enregistré", `Nouveau solde : ${data.solde_restant} FCFA (${data.statut_calcule})`, "success");
             }
+            await syncAppStateCache();
             setTimeout(refresh, 1200);
         }));
     }
@@ -254,6 +331,7 @@
                 `Validé par ${data.valide_par || "opérateur"}`,
                 "success"
             );
+            await syncAppStateCache();
             setTimeout(refresh, 1000);
         }));
     }
@@ -302,11 +380,13 @@
                 showToast("Erreur d'import", data.detail || "Fichier invalide", "error");
                 return;
             }
+            await syncAppStateCache();
             showToast(
                 `Lot ${data.batch_id} importé`,
                 `Acceptées : ${data.total_accepted} | Rejetées : ${data.total_rejected} | Doublons : ${data.duplicate_count}`,
                 data.total_rejected > 0 ? "warning" : "success"
             );
+            storage("sessionStorage", "bwai_active_tab", "tab-portfolio");
             setTimeout(refresh, 1200);
         }));
     }

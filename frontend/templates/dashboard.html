@@ -6,7 +6,7 @@
     <title>BWAI 2026 — Recouvrement Client Intelligent & Explicable</title>
     <link rel="stylesheet" href="/static/css/app.css">
 </head>
-<body class="dashboard">
+<body class="dashboard" data-has-data="{{ 'true' if kpis.total_factures > 0 else 'false' }}">
 <a class="skip-link" href="#main-content">Aller au contenu</a>
 
 <header class="topbar">
@@ -76,8 +76,14 @@
             </button>
         </div>
         <div class="action-group">
+            <button type="button" class="btn btn-outline" onclick="openImportTab()">
+                Importer des données
+            </button>
             <button type="button" class="btn btn-outline" onclick="callApiAction('/api/system/reset-demo')">
-                Réinitialiser la démo
+                Charger la démo
+            </button>
+            <button type="button" class="btn btn-danger" onclick="clearAllData()">
+                Effacer tout (Reprendre à zéro)
             </button>
         </div>
     </div>
@@ -220,7 +226,15 @@
                             </td>
                         </tr>
                         {% else %}
-                        <tr><td class="empty-state" colspan="9">Aucune facture pour ce filtre.</td></tr>
+                        <tr>
+                            <td class="empty-state" colspan="9">
+                                Aucune donnée chargée. Importez un fichier Excel ou CSV pour commencer (l'état sera mis en cache automatiquement).
+                                <div style="margin-top:10px; display:flex; gap:8px; justify-content:center; flex-wrap:wrap;">
+                                    <button type="button" class="btn btn-primary btn-sm" onclick="openImportTab()">Importer un portefeuille (.xlsx / .csv)</button>
+                                    <button type="button" class="btn btn-outline btn-sm" onclick="callApiAction('/api/system/reset-demo')">Charger les données de démonstration</button>
+                                </div>
+                            </td>
+                        </tr>
                         {% endfor %}
                     </tbody>
                 </table>

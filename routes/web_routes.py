@@ -16,7 +16,7 @@ from models.repositories import (
     list_invoices,
     list_reminders,
     list_users,
-    reset_and_load_demo_portfolio,
+    restore_from_app_state_cache,
 )
 
 router = APIRouter(tags=["Interface Web"])
@@ -27,9 +27,11 @@ templates = Jinja2Templates(directory=str(config.BASE_DIR / "frontend" / "templa
 def dashboard_page(request: Request, statut: Optional[str] = None):
     init_db()
     kpis = get_dashboard_kpis()
+    # Si la base est vide mais qu'un cache d'import non efface existe sur disque, on le recharge automatiquement.
+    # Sinon, on n'affiche aucune donnee par defaut : l'utilisateur doit importer un fichier pour commencer.
     if kpis["total_factures"] == 0:
-        reset_and_load_demo_portfolio()
-        kpis = get_dashboard_kpis()
+        if restore_from_app_state_cache():
+            kpis = get_dashboard_kpis()
 
     invoices = list_invoices(statut_filter=statut)
     review_queue = list_reminders(statut_filter="EN_ATTENTE_VALIDATION")

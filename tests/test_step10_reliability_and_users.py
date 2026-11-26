@@ -215,3 +215,52 @@ def test_a6_min_days_between_reminders_enforced(tmp_path: Path):
     send_2_ok = verify_and_simulate_send(prep_2["reminder_id"], db_path=db_file)
     assert send_2_ok["status"] == "SENT_SIMULATED"
 
+
+def test_empty_default_state_cache_persistence_and_clear_to_zero(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+    """
+    Verifie le cycle complet demande :
+    1. Par defaut (nouvelle base sans cache), GET / n'affiche aucune donnee (total_factures == 0).
+    2. Une fois l'importation effectuee (POST /api/import/upload), un cache app_state_cache.json est cree.
+    3. Si la base SQLite est perdue/reinitialisee sans que l'utilisateur ait efface ses donnees,
+       GET / recharge automatiquement l'etat depuis le cache.
+    4. Le bouton 'Effacer tout (Reprendre a zero)' (POST /api/system/clear) vide la base ET supprime le cache.
+    """
+    fresh_db = tmp_path / "test_empty_and_cache.db"
+    monkeypatch.setattr(config, "DATABASE_PATH", fresh_db)
+    init_db(fresh_db)
+    client = TestClient(app)
+
+    # 1. Par defaut : 0 facture
+    dash_0 = client.get("/api/dashboard").json()
+    assert dash_0["total_factures"] == 0
+    html_0 = client.get("/")
+    assert html_0.status_code == 200
+    assert "Aucune donnée chargée" in html_0.text
+
+    # 2. Importation du fichier Excel -> cree le cache
+    excel_path = config.DATA_DIR / "demo_portfolio.xlsx"
+    with excel_path.open("rb") as f:
+        res_imp = client.post(
+            "/api/import/upload",
+            files={"file": ("demo_portfolio.xlsx", f, "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")},
+        )
+    assert res_imp.status_code == 200
+    cache_file = tmp_path / "app_state_cache.json"
+    assert cache_file.exists()
+
+    # 3. Simulation d'une sortie/redemarrage avec base SQLite vide mais cache non efface -> restauration automatique
+    fresh_db.unlink()
+    init_db(fresh_db)
+    assert client.get("/api/dashboard").json()["total_factures"] == 0
+    html_restored = client.get("/")
+    assert html_restored.status_code == 200
+    assert client.get("/api/dashboard").json()["total_factures"] == 7
+
+    # 4. Clic sur 'Effacer tout (Reprendre a zero)' -> vide toutes les donnees et supprime le cache
+    res_clear = client.post("/api/system/clear")
+    assert res_clear.status_code == 200
+    assert res_clear.json()["status"] == "CLEARED"
+    assert not cache_file.exists()
+    assert client.get("/api/dashboard").json()["total_factures"] == 0
+
+

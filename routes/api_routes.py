@@ -4,11 +4,12 @@ Couvre tous les modules A a L du Guide BWAI 2026.
 """
 from pathlib import Path
 import tempfile
-from typing import Dict, Optional
+from typing import Any, Dict, Optional
 
-from fastapi import APIRouter, Depends, HTTPException, UploadFile, File
+from fastapi import APIRouter, Body, Depends, HTTPException, UploadFile, File
 
 from models.repositories import (
+    clear_all_portfolio_data,
     get_dashboard_kpis,
     get_invoice_detail,
     get_settings,
@@ -18,6 +19,8 @@ from models.repositories import (
     list_reminders,
     list_users,
     reset_and_load_demo_portfolio,
+    restore_from_app_state_cache,
+    save_app_state_cache,
     update_setting,
 )
 from models.schemas import (
@@ -81,6 +84,7 @@ async def api_import_file(file: UploadFile = File(...)):
         tmp_path = Path(tmp.name)
     try:
         report = import_portfolio_file(tmp_path)
+        save_app_state_cache()
         return report
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
@@ -104,6 +108,7 @@ def api_prepare_all_reminders(
     actor: Dict[str, str] = Depends(require_roles("GESTIONNAIRE", "VALIDATEUR", "ADMIN")),
 ):
     results = prepare_all_reminders(acteur=actor["username"])
+    save_app_state_cache()
     return {"status": "ok", "actor": actor["username"], "results": results}
 
 
@@ -114,11 +119,13 @@ def api_prepare_single_reminder(
     actor: Dict[str, str] = Depends(require_roles("GESTIONNAIRE", "VALIDATEUR", "ADMIN")),
 ):
     try:
-        return prepare_reminder_for_invoice(
+        res = prepare_reminder_for_invoice(
             invoice_id,
             requested_channel=canal,
             acteur=actor["username"],
         )
+        save_app_state_cache()
+        return res
     except ValueError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
 
@@ -130,13 +137,15 @@ def api_apply_human_review(
     actor: Dict[str, str] = Depends(require_roles("VALIDATEUR", "ADMIN")),
 ):
     try:
-        return apply_human_review(
+        res = apply_human_review(
             reminder_id=reminder_id,
             decision=payload.decision,
             motif=payload.motif,
             nouveau_message=payload.nouveau_message,
             acteur=actor["username"],
         )
+        save_app_state_cache()
+        return res
     except PermissionError as exc:
         raise HTTPException(status_code=403, detail=str(exc)) from exc
     except ValueError as exc:
@@ -150,11 +159,13 @@ def api_verify_and_send_reminder(
     actor: Dict[str, str] = Depends(require_roles("GESTIONNAIRE", "VALIDATEUR", "ADMIN")),
 ):
     try:
-        return verify_and_simulate_send(
+        res = verify_and_simulate_send(
             reminder_id=reminder_id,
             requested_channel=canal,
             acteur=actor["username"],
         )
+        save_app_state_cache()
+        return res
     except ValueError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
 
@@ -165,13 +176,15 @@ def api_simulate_payment(
     actor: Dict[str, str] = Depends(require_roles("GESTIONNAIRE", "VALIDATEUR", "ADMIN")),
 ):
     try:
-        return record_simulated_payment(
+        res = record_simulated_payment(
             invoice_id=payload.invoice_id,
             montant=payload.montant,
             reference_fictive=payload.reference_fictive,
             date_paiement=payload.date_paiement,
             acteur=actor["username"],
         )
+        save_app_state_cache()
+        return res
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
@@ -193,6 +206,24 @@ def api_reset_demo(
     actor: Dict[str, str] = Depends(require_roles("ADMIN")),
 ):
     return reset_and_load_demo_portfolio()
+
+
+@router.post("/system/clear")
+def api_clear_all_data(
+    actor: Dict[str, str] = Depends(require_roles("GESTIONNAIRE", "VALIDATEUR", "ADMIN")),
+):
+    return clear_all_portfolio_data()
+
+
+@router.get("/system/cache")
+def api_get_app_state_cache():
+    return save_app_state_cache()
+
+
+@router.post("/system/cache/restore")
+def api_restore_app_state_cache(payload: Dict[str, Any] = Body(...)):
+    restored = restore_from_app_state_cache(snapshot=payload)
+    return {"status": "RESTORED" if restored else "EMPTY", "restored": restored}
 
 
 @router.post("/system/emergency-stop")
