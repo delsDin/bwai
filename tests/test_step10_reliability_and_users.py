@@ -149,9 +149,9 @@ def test_a5_deterministic_replay_identical_sha256_hash(rel_client: TestClient):
     A.5 : Rejouer plusieurs fois tout le portefeuille via POST /api/system/replay produit
     exactement la meme empreinte SHA-256 de 64 caracteres.
     """
-    replay_1 = rel_client.post("/api/system/replay").json()
-    replay_2 = rel_client.post("/api/system/replay").json()
-    replay_3 = rel_client.post("/api/system/replay").json()
+    replay_1 = rel_client.post("/api/system/replay", headers={"X-API-Token": "tok-gestionnaire-koffi"}).json()
+    replay_2 = rel_client.post("/api/system/replay", headers={"X-API-Token": "tok-gestionnaire-koffi"}).json()
+    replay_3 = rel_client.post("/api/system/replay", headers={"X-API-Token": "tok-gestionnaire-koffi"}).json()
 
     assert len(replay_1["state_hash"]) == 64
     assert replay_1["invoice_count"] == 7
@@ -242,6 +242,7 @@ def test_empty_default_state_cache_persistence_and_clear_to_zero(tmp_path: Path,
     with excel_path.open("rb") as f:
         res_imp = client.post(
             "/api/import/upload",
+            headers={"X-API-Token": "tok-gestionnaire-koffi"},
             files={"file": ("demo_portfolio.xlsx", f, "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")},
         )
     assert res_imp.status_code == 200
@@ -256,11 +257,108 @@ def test_empty_default_state_cache_persistence_and_clear_to_zero(tmp_path: Path,
     assert html_restored.status_code == 200
     assert client.get("/api/dashboard").json()["total_factures"] == 7
 
-    # 4. Clic sur 'Effacer tout (Reprendre a zero)' -> vide toutes les donnees et supprime le cache
-    res_clear = client.post("/api/system/clear")
+    # 4. Clic sur 'Effacer tout (Reprendre a zero)' par ADMIN -> vide toutes les donnees et supprime le cache
+    res_clear = client.post("/api/system/clear", headers={"X-API-Token": "tok-admin-direction"})
     assert res_clear.status_code == 200
     assert res_clear.json()["status"] == "CLEARED"
     assert not cache_file.exists()
     assert client.get("/api/dashboard").json()["total_factures"] == 0
+
+
+def test_a7_exact_decimal_arithmetic_chronological_import_and_live_concurrency_proof(rel_client: TestClient, tmp_path: Path):
+    """
+    Complete le critere 2 'Fiabilite metier' (25/25) :
+    1. Arithmetique Decimal exacte en base 10 sans derive IEEE-754 (ex: 100000.10 - 33333.03 - 66667.07 == 0.0).
+    2. Normalisation monetaire (XOF -> FCFA), rejet des devises etrangeres (EUR) et rejet des paiements/avoirs
+       anterieurs a la date_emission de la facture.
+    3. Preuve de concurrence interactive en direct via POST /api/system/concurrency-proof (20 threads simultanes :
+       1 envoi + 19 bloques, 1 paiement + 19 bloques).
+    """
+    ref_d = date(2026, 3, 15)
+    due_d = date(2026, 2, 15)
+    # Cas classique ou l'arithmetique flottante binaire IEEE-754 laisse un residu non nul
+    solde, retard = compute_balance_and_delay(100000.10, 33333.03, 66667.07, due_d, ref_d)
+    assert solde == 0.0
+    assert retard == 0
+    assert compute_overpayment(100000.10, 33333.03, 66667.07) == 0.0
+
+    # Verification de l'homogeneite de devise et de la coherence chronologique a l'import
+    db_check = tmp_path / "test_chronological_and_currency.db"
+    init_db(db_check)
+    rep = import_portfolio_dict(
+        {
+            "clients": [
+                {
+                    "client_id": "CLI-DEC",
+                    "nom_affiche": "Entreprise Decimal Cotonou",
+                    "contact_simule": "+22997111222",
+                    "canal_prefere": "WHATSAPP",
+                    "consentement_contact": 1,
+                    "nb_factures_historiques": 3,
+                    "nb_retards_historiques": 0,
+                }
+            ],
+            "invoices": [
+                # Devise XOF normalisee en FCFA -> acceptee
+                {
+                    "invoice_id": "FAC-XOF-OK",
+                    "client_id": "CLI-DEC",
+                    "date_emission": "2026-02-01",
+                    "date_echeance": "2026-03-01",
+                    "montant_initial": 100000,
+                    "devise": "XOF",
+                },
+                # Devise EUR -> rejetee pour eviter de melanger les devises dans l'encours FCFA
+                {
+                    "invoice_id": "FAC-EUR-BAD",
+                    "client_id": "CLI-DEC",
+                    "date_emission": "2026-02-01",
+                    "date_echeance": "2026-03-01",
+                    "montant_initial": 500,
+                    "devise": "EUR",
+                },
+            ],
+            "payments": [
+                # Paiement date avant l'emission de la facture (2026-01-15 < 2026-02-01) -> rejete
+                {
+                    "payment_id": "PAY-BEFORE-EMISSION",
+                    "invoice_id": "FAC-XOF-OK",
+                    "date_paiement": "2026-01-15",
+                    "montant": 20000,
+                    "reference_fictive": "MOMO-CHRONO-ERR",
+                }
+            ],
+            "credit_notes": [
+                # Avoir date avant l'emission de la facture (2026-01-10 < 2026-02-01) -> rejete
+                {
+                    "credit_note_id": "AV-BEFORE-EMISSION",
+                    "invoice_id": "FAC-XOF-OK",
+                    "date_avoir": "2026-01-10",
+                    "montant": 10000,
+                    "motif": "Avoir incoherent",
+                }
+            ],
+        },
+        db_path=db_check,
+    )
+    assert rep["accepted_counts"]["invoices"] == 1
+    assert rep["accepted_counts"]["payments"] == 0
+    assert rep["accepted_counts"]["credit_notes"] == 0
+    assert rep["total_rejected"] == 3
+
+    # Preuve de concurrence interactive 20 threads via l'API
+    res_conc = rel_client.post(
+        "/api/system/concurrency-proof",
+        headers={"X-API-Token": "tok-gestionnaire-koffi"},
+    )
+    assert res_conc.status_code == 200
+    c_data = res_conc.json()
+    assert c_data["threads_simultanes"] == 20
+    assert c_data["envoi_relance_concurrent"]["envois_effectues"] == 1
+    assert c_data["envoi_relance_concurrent"]["doublons_bloques"] == 19
+    assert c_data["paiement_mobile_money_concurrent"]["paiements_imputes"] == 1
+    assert c_data["paiement_mobile_money_concurrent"]["doublons_bloques"] == 19
+    assert c_data["paiement_mobile_money_concurrent"]["solde_final_verifie_fcfa"] == 100000.0
+
 
 

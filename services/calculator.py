@@ -3,6 +3,7 @@ Modules C & D - Calcul deterministe des soldes, des jours de retard et qualifica
 Aucun modele generatif n'est utilise ici (Phase 3 & 4 du Guide).
 """
 from datetime import date
+from decimal import Decimal, ROUND_HALF_UP
 import hashlib
 import json
 from pathlib import Path
@@ -14,37 +15,75 @@ from database.db import db_session
 from services.prioritizer import compute_priority_score
 from services.ai_classifier import classifier_singleton
 
+CENT_QUANTUM = Decimal("0.01")
+ZERO_DEC = Decimal("0.00")
+
+
+def to_money_decimal(amount: float | int | str | Decimal) -> Decimal:
+    """
+    Convertit un montant en Decimal base-10 exact arrondi au centime selon la regle comptable ROUND_HALF_UP.
+    Elimine toute derive binaire IEEE-754 (ex: 0.1 + 0.2 == 0.30, 100000.10 - 33333.03 - 66667.07 == 0.00).
+    """
+    if isinstance(amount, Decimal):
+        raw = amount
+    elif isinstance(amount, float):
+        raw = Decimal(f"{amount:.6f}")
+    else:
+        raw = Decimal(str(amount))
+    return raw.quantize(CENT_QUANTUM, rounding=ROUND_HALF_UP)
+
 
 def compute_overpayment(
-    montant_initial: float,
-    total_paye: float,
-    total_avoirs: float,
+    montant_initial: float | Decimal,
+    total_paye: float | Decimal,
+    total_avoirs: float | Decimal,
 ) -> float:
     """
-    Partie A.3 - Calcule le montant de surpaiement (trop-percu) si total_paye + total_avoirs > montant_initial.
+    Partie A.3 - Calcule en arithmetique Decimal exacte le montant de surpaiement (trop-percu)
+    si total_paye + total_avoirs > montant_initial.
     Garantit l'identite comptable : solde_restant + total_paye + total_avoirs - montant_excedent == montant_initial.
     """
-    excedent = float(total_paye) + float(total_avoirs) - float(montant_initial)
-    return round(max(0.0, excedent), 2)
+    m_init = to_money_decimal(montant_initial)
+    m_paye = to_money_decimal(total_paye)
+    m_avoir = to_money_decimal(total_avoirs)
+    excedent = max(ZERO_DEC, (m_paye + m_avoir - m_init).quantize(CENT_QUANTUM, rounding=ROUND_HALF_UP))
+    return float(excedent)
 
 
 def compute_balance_and_delay(
-    montant_initial: float,
-    total_paye: float,
-    total_avoirs: float,
+    montant_initial: float | Decimal,
+    total_paye: float | Decimal,
+    total_avoirs: float | Decimal,
     date_echeance: date,
     reference_date: date,
 ) -> Tuple[float, int]:
     """
-    Solde restant = montant initial - paiements imputes - avoirs imputes.
+    Solde restant = max(0, montant initial - paiements imputes - avoirs imputes) en Decimal base-10 exact.
     Jours de retard = max(0, date_reference - date_echeance) sauf si la facture est soldee.
     """
-    solde_restant = round(max(0.0, float(montant_initial) - float(total_paye) - float(total_avoirs)), 2)
-    if solde_restant <= 0.0:
+    m_init = to_money_decimal(montant_initial)
+    m_paye = to_money_decimal(total_paye)
+    m_avoir = to_money_decimal(total_avoirs)
+    solde_dec = max(ZERO_DEC, (m_init - m_paye - m_avoir).quantize(CENT_QUANTUM, rounding=ROUND_HALF_UP))
+    if solde_dec <= ZERO_DEC:
         return 0.0, 0
     delta_days = (reference_date - date_echeance).days
     jours_retard = max(0, delta_days)
-    return solde_restant, jours_retard
+    return float(solde_dec), jours_retard
+
+
+def determine_maturity_status(
+    solde_restant: float | Decimal,
+    date_echeance: date,
+    reference_date: date,
+) -> str:
+    """
+    Determine la dimension orthogonale d'echeance (SOLDEE, ECHUE, NON_ECHUE),
+    separant explicitement l'etat d'echeance de l'etat de paiement (Guide Phase 4, Note de conception).
+    """
+    if to_money_decimal(solde_restant) <= ZERO_DEC:
+        return "SOLDEE"
+    return "ECHUE" if reference_date > date_echeance else "NON_ECHUE"
 
 
 def determine_invoice_status(
@@ -107,17 +146,19 @@ def _recalculate_invoice_on_conn(
     if not inv:
         raise ValueError(f"Facture introuvable : {invoice_id}")
 
-    pay_row = conn.execute(
-        "SELECT COALESCE(SUM(montant), 0.0) AS total_paye FROM payments WHERE invoice_id = ? AND statut = 'VALIDE'",
+    pay_rows = conn.execute(
+        "SELECT montant FROM payments WHERE invoice_id = ? AND statut = 'VALIDE'",
         (invoice_id,),
-    ).fetchone()
-    total_paye = float(pay_row["total_paye"])
+    ).fetchall()
+    total_paye_dec = sum((to_money_decimal(r["montant"]) for r in pay_rows), ZERO_DEC)
+    total_paye = float(total_paye_dec)
 
-    avoir_row = conn.execute(
-        "SELECT COALESCE(SUM(montant), 0.0) AS total_avoirs FROM credit_notes WHERE invoice_id = ?",
+    avoir_rows = conn.execute(
+        "SELECT montant FROM credit_notes WHERE invoice_id = ?",
         (invoice_id,),
-    ).fetchone()
-    total_avoirs = float(avoir_row["total_avoirs"])
+    ).fetchall()
+    total_avoirs_dec = sum((to_money_decimal(r["montant"]) for r in avoir_rows), ZERO_DEC)
+    total_avoirs = float(total_avoirs_dec)
 
     dispute_row = conn.execute(
         "SELECT COUNT(*) AS cnt FROM disputes WHERE invoice_id = ? AND statut = 'OUVERT'",
@@ -134,10 +175,18 @@ def _recalculate_invoice_on_conn(
     ).fetchone()
     has_active_plan = int(plan_row["cnt"]) > 0
 
-    # Analyse IA du message client si present
-    ai_res = classifier_singleton.classify(inv["dernier_message_client"])
-    ai_categorie = ai_res["categorie"]
-    ai_confiance = ai_res["confiance"]
+    # Analyse IA du message client si present (preserve la reprise humaine si ai_confiance == 1.0 sur un message)
+    if (
+        inv["dernier_message_client"]
+        and inv["ai_categorie"] in ("LITIGE", "DEMANDE_ECHEANCIER", "ANNONCE_PAIEMENT", "RETARD_SIMPLE")
+        and float(inv["ai_confiance"] or 0.0) >= 1.0
+    ):
+        ai_categorie = str(inv["ai_categorie"])
+        ai_confiance = 1.0
+    else:
+        ai_res = classifier_singleton.classify(inv["dernier_message_client"])
+        ai_categorie = ai_res["categorie"]
+        ai_confiance = ai_res["confiance"]
 
     solde_restant, jours_retard = compute_balance_and_delay(
         montant_initial=float(inv["montant_initial"]),
@@ -155,11 +204,16 @@ def _recalculate_invoice_on_conn(
 
     statut_calcule, statut_paiement = determine_invoice_status(
         solde_restant=solde_restant,
-        total_paye_ou_avoir=total_paye + total_avoirs,
+        total_paye_ou_avoir=float(total_paye_dec + total_avoirs_dec),
         date_echeance=date.fromisoformat(inv["date_echeance"]),
         reference_date=ref_date,
         has_open_dispute=has_open_dispute,
         has_active_installment_plan=has_active_plan,
+    )
+    statut_echeance = determine_maturity_status(
+        solde_restant=solde_restant,
+        date_echeance=date.fromisoformat(inv["date_echeance"]),
+        reference_date=ref_date,
     )
 
     score_priorite, explication_score, eligible_relance, _ = compute_priority_score(
@@ -205,15 +259,16 @@ def _recalculate_invoice_on_conn(
 
     return {
         "invoice_id": invoice_id,
-        "montant_initial": round(float(inv["montant_initial"]), 2),
-        "total_paye": round(total_paye, 2),
-        "total_avoirs": round(total_avoirs, 2),
+        "montant_initial": float(to_money_decimal(inv["montant_initial"])),
+        "total_paye": total_paye,
+        "total_avoirs": total_avoirs,
         "solde_restant": solde_restant,
         "surpaiement_detecte": surpaiement_detecte,
         "montant_excedent": montant_excedent,
         "jours_retard": jours_retard,
         "statut_calcule": statut_calcule,
         "statut_paiement": statut_paiement,
+        "statut_echeance": statut_echeance,
         "score_priorite": score_priorite,
         "explication_score": explication_score,
         "eligible_relance": eligible_relance,

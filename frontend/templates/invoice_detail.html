@@ -15,7 +15,19 @@
             <span class="brand-mark" aria-hidden="true">BW<i></i></span>
             <span><strong class="brand-title">BWAI 2026</strong><span class="brand-subtitle">Recouvrement client</span></span>
         </a>
-        <a href="/" class="btn btn-outline btn-sm">&larr; Retour au portefeuille</a>
+        <div class="topbar-controls">
+            {% if operator_tokens %}
+            <div class="role-selector-wrap">
+                <label for="operator-role-select">Opérateur</label>
+                <select id="operator-role-select" class="role-select">
+                    {% for op in operator_tokens %}
+                    <option value="{{ op.token }}">{{ op.label }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+            {% endif %}
+            <a href="/" class="btn btn-outline btn-sm">&larr; Retour au portefeuille</a>
+        </div>
     </div>
 </header>
 
@@ -28,6 +40,37 @@
         </div>
         <div class="hero-visual" aria-hidden="true"><i></i><i></i><i></i><i></i></div>
     </section>
+
+    <div class="action-toolbar">
+        <div class="action-group">
+            {% if detail.invoice.solde_restant > 0 %}
+            <button type="button" class="btn btn-success"
+                    onclick='openPaymentModal({{ detail.invoice.invoice_id|tojson }}, {{ detail.invoice.solde_restant }})'>
+                Simuler un règlement
+            </button>
+            <button type="button" class="btn btn-primary"
+                    onclick="callApiAction('/api/reminders/prepare/{{ detail.invoice.invoice_id }}')">
+                Préparer une relance
+            </button>
+            {% endif %}
+        </div>
+        <div class="action-group">
+            <button type="button" class="btn btn-outline"
+                    onclick="document.getElementById('dialog-dispute').showModal()">
+                Signaler un litige
+            </button>
+            {% if detail.invoice.solde_restant > 0 %}
+            <button type="button" class="btn btn-outline"
+                    onclick="document.getElementById('dialog-credit-note').showModal()">
+                Émettre un avoir
+            </button>
+            <button type="button" class="btn btn-outline"
+                    onclick="document.getElementById('dialog-installment').showModal()">
+                Accorder un échéancier
+            </button>
+            {% endif %}
+        </div>
+    </div>
     <section class="kpi-grid" aria-label="Synthèse de la facture">
         <div class="kpi-card">
             <span class="kpi-label">Montant Initial</span>
@@ -57,12 +100,31 @@
 
     {% if detail.invoice.dernier_message_client %}
     <div class="panel-card" style="margin-block-end:1.25rem;">
-        <h2 class="panel-title">Qualification IA du Dernier Message Client</h2>
-        <p style="margin:0.5rem 0; font-style:italic; color:var(--text-secondary);">« {{ detail.invoice.dernier_message_client }} »</p>
-        <div style="display:flex; gap:0.5rem; align-items:center; flex-wrap:wrap;">
-            <span class="badge badge-CONTESTEE">Catégorie IA : {{ detail.invoice.ai_categorie }}</span>
-            <span class="pill-meta">Confiance : {{ "%.1f"|format((detail.invoice.ai_confiance or 0) * 100) }}%</span>
+        <div class="panel-header" style="margin-block-end:0.5rem;">
+            <div>
+                <h2 class="panel-title">Qualification IA &amp; Explicabilité du Dernier Message Client</h2>
+                <p style="margin:0.35rem 0; font-style:italic; color:var(--text-secondary);">« {{ detail.invoice.dernier_message_client }} »</p>
+            </div>
+            <button type="button" class="btn btn-outline btn-sm"
+                    onclick="document.getElementById('dialog-ai-override').showModal()">
+                Reprise humaine (Requalifier l’IA)
+            </button>
         </div>
+        <div style="display:flex; gap:0.5rem; align-items:center; flex-wrap:wrap;">
+            <span class="badge badge-CONTESTEE">Catégorie retenue : {{ detail.invoice.ai_categorie }}</span>
+            <span class="pill-meta">Confiance : {{ "%.1f"|format((detail.invoice.ai_confiance or 0) * 100) }}%</span>
+            {% if detail.invoice.ai_details %}
+            <span class="pill-meta">Marge top-1/top-2 : {{ "%.1f"|format((detail.invoice.ai_details.marge_top1_top2 or 0) * 100) }} pts</span>
+            {% endif %}
+        </div>
+        {% if detail.invoice.ai_details and detail.invoice.ai_details.termes_explicatifs %}
+        <div style="margin-top:0.5rem; font-size:0.8rem; color:var(--text-secondary);">
+            <strong>Termes explicatifs (TF-IDF &times; poids) :</strong>
+            {% for t in detail.invoice.ai_details.termes_explicatifs %}
+            <code class="code-hash">{{ t.terme }} ({{ "%+.3f"|format(t.contribution) }})</code>
+            {% endfor %}
+        </div>
+        {% endif %}
     </div>
     {% endif %}
 
@@ -112,7 +174,14 @@
             {% if detail.disputes %}
             <p style="font-size:0.84rem; margin:0.35rem 0;"><strong>Litiges :</strong>
                 {% for d in detail.disputes %}
-                <span class="badge badge-CONTESTEE">{{ d.dispute_id }} ({{ d.statut }})</span> {{ d.motif }} (ouvert le {{ d.date_ouverture }})
+                <span style="display:inline-flex; align-items:center; gap:6px; margin-bottom:4px;">
+                    <span class="badge badge-CONTESTEE">{{ d.dispute_id }} ({{ d.statut }})</span> {{ d.motif }} (ouvert le {{ d.date_ouverture }})
+                    {% if d.statut == 'OUVERT' %}
+                    <button type="button" class="btn btn-outline btn-sm" onclick='resolveDisputeUi({{ d.dispute_id|tojson }})'>
+                        Résoudre le litige
+                    </button>
+                    {% endif %}
+                </span><br>
                 {% endfor %}
             </p>
             {% endif %}
@@ -128,7 +197,7 @@
         <div class="table-wrapper" tabindex="0" role="region" aria-label="Historique des relances">
             <table>
             <thead>
-                <tr><th>ID Relance</th><th>Niveau</th><th>Canal</th><th>Statut</th><th>Créé / Validé</th><th>Message</th></tr>
+                <tr><th>ID Relance</th><th>Niveau</th><th>Canal</th><th>Statut</th><th>Créé / Validé</th><th>Message</th><th>Action</th></tr>
             </thead>
             <tbody>
                 {% for r in detail.reminders %}
@@ -136,9 +205,22 @@
                     <th>{{ r.reminder_id }}</th>
                     <td>{{ r.niveau_relance }}</td>
                     <td>{{ r.canal }}</td>
-                    <td><span class="badge badge-{{ r.statut_action }}">{{ r.statut_action|replace('_', ' ')|capitalize }}</span></td>
+                    <td>
+                        <span class="badge badge-{{ r.statut_action }}">{{ r.statut_action|replace('_', ' ')|capitalize }}</span>
+                        {% if r.motif_blocage %}<br><small style="color:var(--text-muted);">{{ r.motif_blocage }}</small>{% endif %}
+                    </td>
                     <td><small>{{ r.cree_par or 'SYSTEME' }} / {{ r.valide_par or '—' }}</small></td>
                     <td><small style="color:var(--text-secondary);">{{ r.contenu_message }}</small></td>
+                    <td>
+                        {% if r.statut_action == 'APPROUVEE' %}
+                        <button type="button" class="btn btn-primary btn-sm"
+                                onclick="callApiAction('/api/reminders/{{ r.reminder_id }}/send')">
+                            Simuler l’envoi
+                        </button>
+                        {% else %}
+                        <small style="color:var(--text-muted);">{{ r.date_envoi_simule or '—' }}</small>
+                        {% endif %}
+                    </td>
                 </tr>
                 {% endfor %}
             </tbody>
@@ -150,5 +232,131 @@
     </div>
 </main>
 
+<!-- Modale Encaissement / Paiement Simule -->
+<dialog id="dialog-payment" closedby="any" aria-labelledby="dialog-payment-title">
+    <div class="dialog-body">
+        <div class="dialog-header">
+            <h1 id="dialog-payment-title">Simuler un règlement (<span id="pay-invoice-label"></span>)</h1>
+        </div>
+        <form id="form-payment">
+            <input type="hidden" id="pay-invoice-id" value="{{ detail.invoice.invoice_id }}">
+            <div class="form-field">
+                <label for="pay-amount">Montant reçu (FCFA)</label>
+                <input type="number" id="pay-amount" step="1" min="1" value="{{ detail.invoice.solde_restant|int }}" required>
+            </div>
+            <div class="form-field">
+                <label for="pay-reference">Référence de transaction fictive (Clé d'idempotence)</label>
+                <input type="text" id="pay-reference" value="MOMO-SIM-{{ detail.invoice.invoice_id }}" required>
+            </div>
+            <div class="dialog-footer">
+                <button type="button" class="btn btn-outline" onclick="document.getElementById('dialog-payment').close()">Annuler</button>
+                <button type="submit" class="btn btn-success">Enregistrer le règlement</button>
+            </div>
+        </form>
+    </div>
+</dialog>
+
+<!-- Modale Ouverture Litige -->
+<dialog id="dialog-dispute" closedby="any" aria-labelledby="dialog-dispute-title">
+    <div class="dialog-body">
+        <div class="dialog-header">
+            <h1 id="dialog-dispute-title">Signaler un litige · {{ detail.invoice.invoice_id }}</h1>
+        </div>
+        <form id="form-dispute">
+            <input type="hidden" id="disp-invoice-id" value="{{ detail.invoice.invoice_id }}">
+            <div class="form-field">
+                <label for="disp-motif">Motif de la contestation client</label>
+                <input type="text" id="disp-motif" placeholder="Ex: Marchandise endommagée ou écart de quantité..." minlength="3" required>
+            </div>
+            <div class="dialog-footer">
+                <button type="button" class="btn btn-outline" onclick="document.getElementById('dialog-dispute').close()">Annuler</button>
+                <button type="submit" class="btn btn-primary">Ouvrir le litige &amp; Suspendre</button>
+            </div>
+        </form>
+    </div>
+</dialog>
+
+<!-- Modale Emission Avoir -->
+<dialog id="dialog-credit-note" closedby="any" aria-labelledby="dialog-cn-title">
+    <div class="dialog-body">
+        <div class="dialog-header">
+            <h1 id="dialog-cn-title">Émettre un avoir · {{ detail.invoice.invoice_id }}</h1>
+        </div>
+        <form id="form-credit-note">
+            <input type="hidden" id="cn-invoice-id" value="{{ detail.invoice.invoice_id }}">
+            <div class="form-field">
+                <label for="cn-amount">Montant de l’avoir (FCFA)</label>
+                <input type="number" id="cn-amount" step="1" min="1" value="25000" required>
+            </div>
+            <div class="form-field">
+                <label for="cn-motif">Motif de l’avoir</label>
+                <input type="text" id="cn-motif" value="Remise commerciale ou régularisation sur facture" minlength="3" required>
+            </div>
+            <div class="dialog-footer">
+                <button type="button" class="btn btn-outline" onclick="document.getElementById('dialog-credit-note').close()">Annuler</button>
+                <button type="submit" class="btn btn-primary">Enregistrer l’avoir</button>
+            </div>
+        </form>
+    </div>
+</dialog>
+
+<!-- Modale Activation Echeancier -->
+<dialog id="dialog-installment" closedby="any" aria-labelledby="dialog-plan-title">
+    <div class="dialog-body">
+        <div class="dialog-header">
+            <h1 id="dialog-plan-title">Accorder un échéancier · {{ detail.invoice.invoice_id }}</h1>
+        </div>
+        <form id="form-installment">
+            <input type="hidden" id="plan-invoice-id" value="{{ detail.invoice.invoice_id }}">
+            <div class="form-field">
+                <label for="plan-next-date">Date de la prochaine échéance convenue</label>
+                <input type="date" id="plan-next-date" value="2026-04-05" required>
+            </div>
+            <div class="form-field">
+                <label for="plan-amount">Montant prévu à l’échéance (FCFA)</label>
+                <input type="number" id="plan-amount" step="1" min="1" value="{{ (detail.invoice.solde_restant / 2)|round(0)|int if detail.invoice.solde_restant > 1 else 50000 }}" required>
+            </div>
+            <div class="dialog-footer">
+                <button type="button" class="btn btn-outline" onclick="document.getElementById('dialog-installment').close()">Annuler</button>
+                <button type="submit" class="btn btn-primary">Activer l’échéancier</button>
+            </div>
+        </form>
+    </div>
+</dialog>
+
+<!-- Modale Reprise Humaine sur la Qualification IA -->
+<dialog id="dialog-ai-override" closedby="any" aria-labelledby="dialog-ai-override-title">
+    <div class="dialog-body">
+        <div class="dialog-header">
+            <h1 id="dialog-ai-override-title">Reprise humaine sur la qualification IA · {{ detail.invoice.invoice_id }}</h1>
+        </div>
+        <p style="margin:0 0 0.75rem; font-size:0.8rem; color:var(--text-secondary);">
+            Permet à un opérateur humain de confirmer ou corriger la catégorie attribuée au message client et d'adapter la file de revue humaine (tracé dans le journal SHA-256).
+        </p>
+        <form id="form-ai-override">
+            <input type="hidden" id="ai-ov-invoice-id" value="{{ detail.invoice.invoice_id }}">
+            <div class="form-field">
+                <label for="ai-ov-category">Qualification retenue par l’opérateur</label>
+                <select id="ai-ov-category">
+                    <option value="LITIGE" {% if detail.invoice.ai_categorie == 'LITIGE' %}selected{% endif %}>LITIGE — Contestation / non-conformité (Revue obligatoire)</option>
+                    <option value="DEMANDE_ECHEANCIER" {% if detail.invoice.ai_categorie == 'DEMANDE_ECHEANCIER' %}selected{% endif %}>DEMANDE_ECHEANCIER — Demande d'étalement (Revue obligatoire)</option>
+                    <option value="ANNONCE_PAIEMENT" {% if detail.invoice.ai_categorie == 'ANNONCE_PAIEMENT' %}selected{% endif %}>ANNONCE_PAIEMENT — Règlement annoncé à vérifier (Revue obligatoire)</option>
+                    <option value="RETARD_SIMPLE" {% if detail.invoice.ai_categorie == 'RETARD_SIMPLE' %}selected{% endif %}>RETARD_SIMPLE — Excuse simple sans litige</option>
+                </select>
+            </div>
+            <div class="form-field">
+                <label for="ai-ov-motif">Motif de la reprise humaine</label>
+                <input type="text" id="ai-ov-motif" value="Requalification du message après lecture par le gestionnaire" minlength="3" required>
+            </div>
+            <div class="dialog-footer">
+                <button type="button" class="btn btn-outline" onclick="document.getElementById('dialog-ai-override').close()">Annuler</button>
+                <button type="submit" class="btn btn-primary">Appliquer la qualification humaine</button>
+            </div>
+        </form>
+    </div>
+</dialog>
+
+<div id="toast-stack" class="toast-stack" aria-live="polite"></div>
+<script src="/static/js/app.js"></script>
 </body>
 </html>

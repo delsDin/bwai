@@ -40,6 +40,9 @@ MAX_REMINDERS_PER_INVOICE = int(os.getenv("BWAI_MAX_REMINDERS_PER_INVOICE", "3")
 PRE_DUE_REMINDER_WINDOW_DAYS = int(os.getenv("BWAI_PRE_DUE_REMINDER_WINDOW_DAYS", "3"))
 SECOND_REMINDER_THRESHOLD_DAYS = int(os.getenv("BWAI_SECOND_REMINDER_THRESHOLD_DAYS", "15"))
 
+# Authentification stricte : tout appel sans jeton sur une route protegee renvoie 401 (desactivable pour le debogage uniquement)
+REQUIRE_AUTH = os.getenv("BWAI_REQUIRE_AUTH", "1").strip() != "0"
+
 # Jetons des comptes de test (lus depuis .env avec repli sur les jetons de demonstration documentes)
 TOKEN_GESTIONNAIRE = os.getenv("BWAI_TOKEN_GESTIONNAIRE", "tok-gestionnaire-koffi")
 TOKEN_VALIDATEUR_1 = os.getenv("BWAI_TOKEN_VALIDATEUR_1", "tok-validateur-amina")

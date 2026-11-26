@@ -264,7 +264,7 @@ def apply_human_review(
         cree_par = str(rem["cree_par"] or "SYSTEME")
         if (
             decision_upper in ("APPROUVER", "MODIFIER")
-            and cree_par not in ("SYSTEME", "GESTIONNAIRE")
+            and cree_par != "SYSTEME"
             and acteur == cree_par
         ):
             raise PermissionError(

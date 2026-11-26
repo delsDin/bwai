@@ -82,12 +82,18 @@ def init_db(db_path: Path | None = None) -> None:
             ("ai_confidence_threshold", str(config.DEFAULT_AI_CONFIDENCE_THRESHOLD), "Seuil de confiance IA minimal avant revue humaine"),
             ("default_channel", config.DEFAULT_CHANNEL, "Canal simulé par défaut (WHATSAPP, SMS, EMAIL)"),
             ("emergency_stop", "0", "Interrupteur d'arrêt d'urgence (1 = bloque tout envoi simulé)"),
-            ("require_auth", "0", "Mode authentification stricte sur toutes les routes (0 ou 1)"),
+            ("require_auth", "1", "Mode authentification stricte sur toutes les routes (0 ou 1)"),
             ("allow_audit_reset", "0", "Autorisation interne temporaire de purge lors du reset de démo"),
         ]
         conn.executemany(
             "INSERT OR IGNORE INTO settings (key, value, description) VALUES (?, ?, ?)",
             default_settings,
+        )
+        # Le mode d'authentification est impose a chaque demarrage depuis la configuration (.env),
+        # y compris sur une base SQLite creee avant l'activation de l'authentification stricte.
+        conn.execute(
+            "UPDATE settings SET value = ? WHERE key = 'require_auth'",
+            ("1" if config.REQUIRE_AUTH else "0",),
         )
         default_users = [
             (

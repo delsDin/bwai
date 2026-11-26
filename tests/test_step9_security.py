@@ -192,3 +192,66 @@ def test_c5_emergency_stop_kill_switch(sec_client: TestClient):
     )
     assert res_send_ok.status_code == 200
     assert res_send_ok.json()["status"] == "SENT_SIMULATED"
+
+
+def test_c6_three_security_flaws_remediation(sec_client: TestClient):
+    """
+    Verifie la correction des 3 failles de securite identifiees lors de l'audit :
+    1. Tout appel anonyme sans X-API-Token sur une route protegee est rejete en 401 (plus aucun repli ADMIN anonyme).
+       Meme si require_auth est bascule a '0', l'acteur anonyme n'a que le role GESTIONNAIRE (403 sur review/stop/clear).
+    2. POST /api/system/cache/restore exige le role ADMIN et rejette en 400 toute chaine audit_logs SHA-256 falsifiee.
+    3. POST /api/system/clear est strictement reserve au role ADMIN (403 pour GESTIONNAIRE et VALIDATEUR).
+    """
+    # Faille 1 : Appels anonymes sans jeton -> 401 Unauthorized
+    assert sec_client.post("/api/system/emergency-stop", json={"active": True, "motif": "Anon"}).status_code == 401
+    assert (
+        sec_client.post(
+            "/api/review/REL-FAC-2026-007-RELANCE_2",
+            json={"decision": "APPROUVER", "motif": "Anon bypass"},
+        ).status_code
+        == 401
+    )
+    assert sec_client.post("/api/system/clear").status_code == 401
+    assert sec_client.post("/api/system/cache/restore", json={"has_active_data": True, "tables": {}}).status_code == 401
+
+    # Faille 3 : GESTIONNAIRE et VALIDATEUR ne peuvent pas purger la base et le journal via /api/system/clear -> 403
+    assert (
+        sec_client.post("/api/system/clear", headers={"X-API-Token": "tok-gestionnaire-koffi"}).status_code == 403
+    )
+    assert (
+        sec_client.post("/api/system/clear", headers={"X-API-Token": "tok-validateur-amina"}).status_code == 403
+    )
+
+    # Faille 2 : Un snapshot avec audit_logs falsifie est rejete avec 400 Bad Request meme pour ADMIN
+    valid_snap = sec_client.get(
+        "/api/system/cache",
+        headers={"X-API-Token": "tok-admin-direction"},
+    ).json()
+    forged_snap = dict(valid_snap)
+    forged_snap["tables"] = dict(valid_snap["tables"])
+    forged_snap["tables"]["audit_logs"] = [
+        {
+            "event_id": 1,
+            "timestamp": "2026-03-15 10:00:00 UTC",
+            "acteur": "pirate",
+            "action": "FORGED_EVENT",
+            "objet_type": "SYSTEME",
+            "objet_id": "X",
+            "ancienne_valeur": None,
+            "nouvelle_valeur": None,
+            "motif": "Falsification",
+            "prev_hash": "GENESIS",
+            "entry_hash": "0000000000000000000000000000000000000000000000000000000000000000",
+        }
+    ]
+    res_forged = sec_client.post(
+        "/api/system/cache/restore",
+        headers={"X-API-Token": "tok-admin-direction"},
+        json=forged_snap,
+    )
+    assert res_forged.status_code == 400
+    assert "SHA-256 invalide" in res_forged.json()["detail"]
+
+    # Le journal d'audit en base est demeure 100 % intact et integre
+    assert sec_client.get("/api/audit-logs/verify").json()["valid"] is True
+

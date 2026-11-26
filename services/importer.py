@@ -2,7 +2,7 @@
 Modules A & B - Importation locale de portefeuille (CSV, Excel ou dictionnaire) et controle strict des donnees.
 Signale les lignes invalides et les doublons dans import_errors sans les integrer silencieusement (Test T12).
 """
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
 import json
 from pathlib import Path
 import sqlite3
@@ -54,6 +54,7 @@ def _record_import_error(
 def import_portfolio_dict(
     payload: Dict[str, List[Dict[str, Any]]],
     db_path: Path | None = None,
+    acteur: str = "GESTIONNAIRE",
 ) -> Dict[str, Any]:
     """
     Importe un portefeuille complet (clients, invoices, payments, credit_notes, installment_plans, disputes).
@@ -157,10 +158,25 @@ def import_portfolio_dict(
                 rejected_rows.append(_record_import_error(conn, batch_id, idx, "Paiement", row, f"Champ invalide ({err_msg})"))
                 continue
 
-            inv_exists = conn.execute("SELECT 1 FROM invoices WHERE invoice_id = ?", (valid.invoice_id,)).fetchone()
+            inv_exists = conn.execute(
+                "SELECT date_emission FROM invoices WHERE invoice_id = ?", (valid.invoice_id,)
+            ).fetchone()
             if not inv_exists:
                 rejected_rows.append(
                     _record_import_error(conn, batch_id, idx, "Paiement", row, f"Facture inconnue : {valid.invoice_id}")
+                )
+                continue
+
+            if valid.date_paiement < date.fromisoformat(str(inv_exists["date_emission"])):
+                rejected_rows.append(
+                    _record_import_error(
+                        conn,
+                        batch_id,
+                        idx,
+                        "Paiement",
+                        row,
+                        f"Incoherence chronologique : date_paiement ({valid.date_paiement}) anterieure a date_emission ({inv_exists['date_emission']})",
+                    )
                 )
                 continue
 
@@ -206,10 +222,25 @@ def import_portfolio_dict(
                 rejected_rows.append(_record_import_error(conn, batch_id, idx, "Avoir", row, f"Champ invalide ({err_msg})"))
                 continue
 
-            inv_exists = conn.execute("SELECT 1 FROM invoices WHERE invoice_id = ?", (valid.invoice_id,)).fetchone()
+            inv_exists = conn.execute(
+                "SELECT date_emission FROM invoices WHERE invoice_id = ?", (valid.invoice_id,)
+            ).fetchone()
             if not inv_exists:
                 rejected_rows.append(
                     _record_import_error(conn, batch_id, idx, "Avoir", row, f"Facture inconnue : {valid.invoice_id}")
+                )
+                continue
+
+            if valid.date_avoir < date.fromisoformat(str(inv_exists["date_emission"])):
+                rejected_rows.append(
+                    _record_import_error(
+                        conn,
+                        batch_id,
+                        idx,
+                        "Avoir",
+                        row,
+                        f"Incoherence chronologique : date_avoir ({valid.date_avoir}) anterieure a date_emission ({inv_exists['date_emission']})",
+                    )
                 )
                 continue
 
@@ -309,7 +340,7 @@ def import_portfolio_dict(
     total_rejected = len(rejected_rows)
 
     log_event(
-        acteur="GESTIONNAIRE",
+        acteur=acteur,
         action="IMPORT_PORTEFEUILLE",
         objet_type="BATCH",
         objet_id=batch_id,
@@ -341,7 +372,11 @@ def _sanitize_records(records: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
     return cleaned
 
 
-def import_portfolio_file(file_path: Path, db_path: Path | None = None) -> Dict[str, Any]:
+def import_portfolio_file(
+    file_path: Path,
+    db_path: Path | None = None,
+    acteur: str = "GESTIONNAIRE",
+) -> Dict[str, Any]:
     """
     Lit un fichier Excel (.xlsx avec feuilles Clients, Factures, Paiements, Avoirs, Echeanciers, Contestations)
     ou un fichier CSV de factures et appelle import_portfolio_dict.
@@ -379,11 +414,21 @@ def import_portfolio_file(file_path: Path, db_path: Path | None = None) -> Dict[
     elif suffix == ".csv":
         df = pd.read_csv(file_path)
         rows = _sanitize_records(df.to_dict(orient="records"))
-        if rows and "montant_initial" in rows[0]:
-            payload["invoices"] = rows
-        elif rows and "nom_affiche" in rows[0]:
-            payload["clients"] = rows
+        if rows:
+            first = rows[0]
+            if "montant_initial" in first:
+                payload["invoices"] = rows
+            elif "nom_affiche" in first:
+                payload["clients"] = rows
+            elif "payment_id" in first or "reference_fictive" in first:
+                payload["payments"] = rows
+            elif "credit_note_id" in first:
+                payload["credit_notes"] = rows
+            elif "plan_id" in first or "date_prochaine_echeance" in first:
+                payload["installment_plans"] = rows
+            elif "dispute_id" in first:
+                payload["disputes"] = rows
     else:
         raise ValueError(f"Format de fichier non supporte : {suffix}")
 
-    return import_portfolio_dict(payload, db_path=db_path)
+    return import_portfolio_dict(payload, db_path=db_path, acteur=acteur)

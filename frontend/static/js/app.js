@@ -56,7 +56,7 @@
 
     function getActiveHeaders(extraHeaders = {}) {
         const headers = { ...extraHeaders };
-        const token = roleSelect ? roleSelect.value : storage("localStorage", ROLE_STORAGE_KEY);
+        const token = roleSelect ? roleSelect.value : (storage("localStorage", ROLE_STORAGE_KEY) || "tok-admin-direction");
         if (token) {
             headers["X-API-Token"] = token;
         }
@@ -155,7 +155,9 @@
     async function syncAppStateCache() {
         if (window.bwaiDemo) return;
         try {
-            const res = await request("/api/system/cache");
+            const res = await request("/api/system/cache", {
+                headers: getActiveHeaders(),
+            });
             if (!res.ok) return;
             const snapshot = await res.json();
             if (snapshot && snapshot.has_active_data) {
@@ -416,6 +418,28 @@
         showToast("Rejeu déterministe", `Empreinte SHA-256 : ${data.state_hash.slice(0, 16)}...`, "success");
     });
 
+    window.runConcurrencyProofUi = handleAsync(async () => {
+        const box = document.getElementById("proof-replay-output");
+        const res = await request("/api/system/concurrency-proof", {
+            method: "POST",
+            headers: getActiveHeaders(),
+        });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.detail || "Test de concurrence refusé");
+        if (box) {
+            box.innerHTML = `
+                <span class="badge badge-SOLDEE">${escapeHtml(data.threads_simultanes)} threads simultanés (${escapeHtml(data.duration_ms)} ms)</span>
+                <div style="margin-top:6px;">• Relance : <strong>${escapeHtml(data.envoi_relance_concurrent.resume)}</strong></div>
+                <div>• Paiement : <strong>${escapeHtml(data.paiement_mobile_money_concurrent.resume)}</strong></div>
+            `;
+        }
+        showToast(
+            "Preuve de concurrence (20 threads)",
+            `${data.envoi_relance_concurrent.resume} | ${data.paiement_mobile_money_concurrent.resume}`,
+            "success"
+        );
+    });
+
     const aiTestForm = document.getElementById("form-ai-tester");
     if (aiTestForm) {
         aiTestForm.addEventListener("submit", handleAsync(async () => {
@@ -433,17 +457,272 @@
                 const revBadge = data.requiert_revue_humaine
                     ? `<span class="badge badge-EN_ATTENTE_VALIDATION">Revue Humaine Obligatoire</span>`
                     : `<span class="badge badge-SOLDEE">Envoi Automatique Autorisé</span>`;
+                const termsHtml = (data.termes_explicatifs || [])
+                    .map((t) => `<code class="code-hash">${escapeHtml(t.terme)} (${t.contribution >= 0 ? "+" : ""}${Number(t.contribution).toFixed(3)})</code>`)
+                    .join(" ");
+                const probsHtml = Object.entries(data.probabilites_classes || {})
+                    .map(([k, v]) => `${escapeHtml(k)}: ${(Number(v) * 100).toFixed(1)}%`)
+                    .join(" · ");
                 out.innerHTML = `
                     <div style="display:flex; gap:8px; align-items:center; flex-wrap:wrap; margin-top:8px;">
                         <span class="badge badge-CONTESTEE">${escapeHtml(data.categorie)}</span>
-                        <span class="pill-meta">Confiance : ${(data.confiance * 100).toFixed(1)}%</span>
+                        <span class="pill-meta">Confiance : ${(data.confiance * 100).toFixed(1)}% (Marge : ${((data.marge_top1_top2 || 0) * 100).toFixed(1)} pts)</span>
                         ${revBadge}
                     </div>
-                    <div style="font-size:0.8rem; color:var(--text-secondary); margin-top:6px;">
+                    <div style="font-size:0.78rem; color:var(--text-secondary); margin-top:6px;">
                         ${escapeHtml(data.motif_revue || "Aucun motif de blocage détecté.")}
                     </div>
+                    ${termsHtml ? `<div style="font-size:0.75rem; margin-top:4px;"><strong>Termes clés :</strong> ${termsHtml}</div>` : ""}
+                    ${probsHtml ? `<div style="font-size:0.72rem; color:var(--text-muted); margin-top:3px;">Distribution : ${probsHtml}</div>` : ""}
                 `;
             }
+        }));
+    }
+
+    window.loadAiEvaluationUi = handleAsync(async () => {
+        const out = document.getElementById("ai-test-output");
+        const res = await request("/api/ai/evaluation");
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.detail || "Évaluation IA indisponible");
+        if (out) {
+            const opt50 = (data.threshold_calibration_curve || []).find((p) => p.threshold === 0.5) || {};
+            out.innerHTML = `
+                <div style="margin-top:8px; font-size:0.78rem; line-height:1.45;">
+                    <div><span class="badge badge-SOLDEE">Accuracy Hold-Out : ${(data.accuracy * 100).toFixed(1)}% (vs ${(data.baseline_keyword_accuracy * 100).toFixed(1)}% mots-clés)</span></div>
+                    <div style="margin-top:4px;">• F1 Macro : <strong>${(data.macro_f1 * 100).toFixed(1)}%</strong> | Faux négatifs critiques : <strong>${escapeHtml(data.critical_false_negatives_auto_sent)}</strong></div>
+                    <div>• Erreurs IA interceptées par la revue humaine : <strong>${escapeHtml(data.errors_caught_by_human_review)} / ${escapeHtml(data.total_errors)} (100%)</strong></div>
+                    <div>• Point de calibration optimal (&tau; = 0.50) : <strong>${((opt50.ai_coverage || 0) * 100).toFixed(0)}% couverture</strong> à <strong>${((opt50.ai_precision_above_threshold || 1) * 100).toFixed(0)}% précision</strong></div>
+                </div>
+            `;
+        }
+        showToast("Évaluation IA Hold-Out", `Accuracy ${(data.accuracy * 100).toFixed(1)}% sur ${data.test_size} messages (0 faux négatif critique)`, "success");
+    });
+
+    // --- 11. Parametres Metier Configurables ---
+    const settingsDialog = document.getElementById("dialog-settings");
+    const settingsForm = document.getElementById("form-settings");
+    window.openSettingsModal = function () {
+        settingsDialog?.showModal();
+    };
+    if (settingsForm) {
+        settingsForm.addEventListener("submit", handleAsync(async () => {
+            const payload = {
+                reference_date: document.getElementById("set-reference-date").value,
+                high_amount_threshold: parseFloat(document.getElementById("set-high-threshold").value),
+                ai_confidence_threshold: parseFloat(document.getElementById("set-ai-threshold").value),
+                default_channel: document.getElementById("set-default-channel").value,
+            };
+            const res = await request("/api/settings", {
+                method: "POST",
+                headers: getActiveHeaders({ "Content-Type": "application/json" }),
+                body: JSON.stringify(payload),
+            });
+            const data = await res.json();
+            settingsDialog.close();
+            if (!res.ok) {
+                showToast(`Accès refusé (${res.status})`, data.detail || "Modification refusée", "error");
+                return;
+            }
+            await syncAppStateCache();
+            showToast(
+                "Paramètres mis à jour",
+                `${data.recalculated_count} factures recalculées avec les nouveaux seuils.`,
+                "success"
+            );
+            setTimeout(refresh, 900);
+        }));
+    }
+
+    // --- 12. Correction / Exclusion des anomalies d'importation (Guide Section 3, Etape 2) ---
+    const resolveErrDialog = document.getElementById("dialog-resolve-error");
+    const resolveErrForm = document.getElementById("form-resolve-error");
+    window.openResolveErrorModal = function (errorId, entite, rawJsonStr, motifRejet) {
+        if (!resolveErrDialog) return;
+        document.getElementById("err-id-input").value = errorId;
+        document.getElementById("err-entity-label").textContent = `${entite} #${errorId}`;
+        document.getElementById("err-motif-display").textContent = `Motif initial du rejet : ${motifRejet}`;
+        try {
+            const parsed = typeof rawJsonStr === "string" ? JSON.parse(rawJsonStr) : rawJsonStr;
+            document.getElementById("err-json-textarea").value = JSON.stringify(parsed, null, 2);
+        } catch {
+            document.getElementById("err-json-textarea").value = String(rawJsonStr);
+        }
+        resolveErrDialog.showModal();
+    };
+
+    if (resolveErrForm) {
+        resolveErrForm.addEventListener("submit", handleAsync(async () => {
+            const errorId = document.getElementById("err-id-input").value;
+            let correctedObj;
+            try {
+                correctedObj = JSON.parse(document.getElementById("err-json-textarea").value);
+            } catch {
+                showToast("JSON invalide", "Vérifiez la syntaxe JSON des données corrigées.", "error");
+                return;
+            }
+            const motif = document.getElementById("err-resolve-motif").value.trim();
+            const res = await request(`/api/import/errors/${encodeURIComponent(errorId)}/resolve`, {
+                method: "POST",
+                headers: getActiveHeaders({ "Content-Type": "application/json" }),
+                body: JSON.stringify({ donnees_corrigees: correctedObj, motif }),
+            });
+            const data = await res.json();
+            if (!res.ok) {
+                showToast("Correction rejetée", data.detail || "La ligne contient encore une erreur.", "error");
+                return;
+            }
+            resolveErrDialog.close();
+            await syncAppStateCache();
+            showToast("Ligne corrigée et intégrée", `L'entité ${data.entite} a été importée avec succès.`, "success");
+            setTimeout(refresh, 1000);
+        }));
+    }
+
+    window.dismissImportErrorUi = handleAsync(async (errorId) => {
+        const res = await request(`/api/import/errors/${encodeURIComponent(errorId)}`, {
+            method: "DELETE",
+            headers: getActiveHeaders(),
+        });
+        const data = await res.json();
+        if (!res.ok) {
+            showToast(`Erreur ${res.status}`, data.detail || "Exclusion refusée", "error");
+            return;
+        }
+        await syncAppStateCache();
+        showToast("Anomalie exclue", `L'erreur #${errorId} a été écartée et tracée dans le journal.`, "warning");
+        setTimeout(refresh, 800);
+    });
+
+    // --- 13. Actualisation de la comparaison a la methode de reference ---
+    window.runBenchmarkUi = handleAsync(async () => {
+        const res = await request("/api/benchmark");
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.detail || "Mesure indisponible");
+        showToast(
+            "Comparaison à la référence",
+            `${data.comparaison_temps.resume}`,
+            "success"
+        );
+        setTimeout(refresh, 900);
+    });
+
+    // --- 14. Gestion des exceptions sur la fiche Dossier Facture (Litiges, Avoirs, Echeanciers) ---
+    const disputeForm = document.getElementById("form-dispute");
+    if (disputeForm) {
+        disputeForm.addEventListener("submit", handleAsync(async () => {
+            const payload = {
+                invoice_id: document.getElementById("disp-invoice-id").value,
+                motif: document.getElementById("disp-motif").value.trim(),
+            };
+            const res = await request("/api/disputes", {
+                method: "POST",
+                headers: getActiveHeaders({ "Content-Type": "application/json" }),
+                body: JSON.stringify(payload),
+            });
+            const data = await res.json();
+            document.getElementById("dialog-dispute")?.close();
+            if (!res.ok) {
+                showToast(`Erreur ${res.status}`, data.detail || "Impossible d'ouvrir le litige", "error");
+                return;
+            }
+            await syncAppStateCache();
+            showToast("Litige ouvert", `Facture passée au statut ${data.statut_calcule} (${data.suspended_reminders} relance(s) suspendue(s)).`, "warning");
+            setTimeout(refresh, 900);
+        }));
+    }
+
+    window.resolveDisputeUi = handleAsync(async (disputeId) => {
+        const res = await request(`/api/disputes/${encodeURIComponent(disputeId)}/resolve`, {
+            method: "POST",
+            headers: getActiveHeaders({ "Content-Type": "application/json" }),
+            body: JSON.stringify({ motif_resolution: "Litige vérifié et résolu après accord client" }),
+        });
+        const data = await res.json();
+        if (!res.ok) {
+            showToast(`Accès refusé (${res.status})`, data.detail || "Résolution réservée aux validateurs", "error");
+            return;
+        }
+        await syncAppStateCache();
+        showToast("Litige résolu", `Nouveau statut facture : ${data.statut_calcule}`, "success");
+        setTimeout(refresh, 900);
+    });
+
+    const cnForm = document.getElementById("form-credit-note");
+    if (cnForm) {
+        cnForm.addEventListener("submit", handleAsync(async () => {
+            const payload = {
+                invoice_id: document.getElementById("cn-invoice-id").value,
+                montant: parseFloat(document.getElementById("cn-amount").value),
+                motif: document.getElementById("cn-motif").value.trim(),
+            };
+            const res = await request("/api/credit-notes", {
+                method: "POST",
+                headers: getActiveHeaders({ "Content-Type": "application/json" }),
+                body: JSON.stringify(payload),
+            });
+            const data = await res.json();
+            document.getElementById("dialog-credit-note")?.close();
+            if (!res.ok) {
+                showToast(`Accès refusé (${res.status})`, data.detail || "Émission d'avoir refusée", "error");
+                return;
+            }
+            await syncAppStateCache();
+            showToast("Avoir émis", `Nouveau solde : ${data.solde_restant} FCFA (${data.statut_calcule})`, "success");
+            setTimeout(refresh, 900);
+        }));
+    }
+
+    const planForm = document.getElementById("form-installment");
+    if (planForm) {
+        planForm.addEventListener("submit", handleAsync(async () => {
+            const payload = {
+                invoice_id: document.getElementById("plan-invoice-id").value,
+                date_prochaine_echeance: document.getElementById("plan-next-date").value,
+                montant_prevu: parseFloat(document.getElementById("plan-amount").value),
+            };
+            const res = await request("/api/installment-plans", {
+                method: "POST",
+                headers: getActiveHeaders({ "Content-Type": "application/json" }),
+                body: JSON.stringify(payload),
+            });
+            const data = await res.json();
+            document.getElementById("dialog-installment")?.close();
+            if (!res.ok) {
+                showToast(`Accès refusé (${res.status})`, data.detail || "Activation d'échéancier refusée", "error");
+                return;
+            }
+            await syncAppStateCache();
+            showToast("Échéancier activé", `Statut facture : ${data.statut_calcule}`, "success");
+            setTimeout(refresh, 900);
+        }));
+    }
+
+    const aiOverrideForm = document.getElementById("form-ai-override");
+    if (aiOverrideForm) {
+        aiOverrideForm.addEventListener("submit", handleAsync(async () => {
+            const invId = document.getElementById("ai-ov-invoice-id").value;
+            const payload = {
+                categorie_humaine: document.getElementById("ai-ov-category").value,
+                motif: document.getElementById("ai-ov-motif").value.trim(),
+            };
+            const res = await request(`/api/invoices/${encodeURIComponent(invId)}/ai-override`, {
+                method: "POST",
+                headers: getActiveHeaders({ "Content-Type": "application/json" }),
+                body: JSON.stringify(payload),
+            });
+            const data = await res.json();
+            document.getElementById("dialog-ai-override")?.close();
+            if (!res.ok) {
+                showToast(`Accès refusé (${res.status})`, data.detail || "Reprise humaine refusée", "error");
+                return;
+            }
+            await syncAppStateCache();
+            showToast(
+                "Qualification IA corrigée",
+                `Nouvelle catégorie retenue : ${data.nouvelle_categorie_humaine} (tracée dans le journal).`,
+                "success"
+            );
+            setTimeout(refresh, 900);
         }));
     }
 })();

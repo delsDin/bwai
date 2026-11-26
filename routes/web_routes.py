@@ -11,6 +11,7 @@ from database.db import init_db
 from models.repositories import (
     get_dashboard_kpis,
     get_invoice_detail,
+    get_settings,
     list_audit_logs,
     list_import_errors,
     list_invoices,
@@ -18,9 +19,19 @@ from models.repositories import (
     list_users,
     restore_from_app_state_cache,
 )
+from services.benchmark_service import run_reference_benchmark
 
 router = APIRouter(tags=["Interface Web"])
 templates = Jinja2Templates(directory=str(config.BASE_DIR / "frontend" / "templates"))
+
+
+def _get_operator_tokens() -> list[dict[str, str]]:
+    return [
+        {"token": config.TOKEN_ADMIN, "label": "Direction (ADMIN)"},
+        {"token": config.TOKEN_VALIDATEUR_1, "label": "Amina (VALIDATEUR 1)"},
+        {"token": config.TOKEN_VALIDATEUR_2, "label": "Boris (VALIDATEUR 2 — 4 yeux)"},
+        {"token": config.TOKEN_GESTIONNAIRE, "label": "Koffi (GESTIONNAIRE)"},
+    ]
 
 
 @router.get("/", response_class=HTMLResponse)
@@ -30,8 +41,11 @@ def dashboard_page(request: Request, statut: Optional[str] = None):
     # Si la base est vide mais qu'un cache d'import non efface existe sur disque, on le recharge automatiquement.
     # Sinon, on n'affiche aucune donnee par defaut : l'utilisateur doit importer un fichier pour commencer.
     if kpis["total_factures"] == 0:
-        if restore_from_app_state_cache():
-            kpis = get_dashboard_kpis()
+        try:
+            if restore_from_app_state_cache():
+                kpis = get_dashboard_kpis()
+        except ValueError:
+            pass
 
     invoices = list_invoices(statut_filter=statut)
     review_queue = list_reminders(statut_filter="EN_ATTENTE_VALIDATION")
@@ -39,6 +53,8 @@ def dashboard_page(request: Request, statut: Optional[str] = None):
     import_errors = list_import_errors()
     audit_logs = list_audit_logs(limit=40)
     users = list_users()
+    settings = get_settings()
+    benchmark = run_reference_benchmark()
 
     return templates.TemplateResponse(
         request=request,
@@ -51,6 +67,9 @@ def dashboard_page(request: Request, statut: Optional[str] = None):
             "import_errors": import_errors,
             "audit_logs": audit_logs,
             "users": users,
+            "settings": settings,
+            "benchmark": benchmark,
+            "operator_tokens": _get_operator_tokens(),
             "current_filter": statut,
         },
     )
@@ -64,5 +83,8 @@ def invoice_detail_page(request: Request, invoice_id: str):
     return templates.TemplateResponse(
         request=request,
         name="invoice_detail.html",
-        context={"detail": detail},
+        context={
+            "detail": detail,
+            "operator_tokens": _get_operator_tokens(),
+        },
     )

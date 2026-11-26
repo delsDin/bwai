@@ -31,6 +31,7 @@ Les **6 points de différenciation (A.1 à A.6)** définis dans `ANALYSE_BACKEND
 | **A.4** | **Tests de propriétés et d'invariants mathématiques** | `tests/test_step10_reliability_and_users.py` | 1. Identité exacte $\text{solde} + \text{payé} + \text{avoirs} - \text{excédent} = \text{initial}$.<br>2. Commutativité de l'ordre d'arrivée des paiements partiels. |
 | **A.5** | **Rejeu déterministe avec empreinte SHA-256 de l'état final** | `services/calculator.py` (`deterministic_replay`), `POST /api/system/replay` | Sérialisation canonique de tout le portefeuille et calcul d'un hachage SHA-256 de 64 caractères strictement identique à chaque exécution. |
 | **A.6** | **Respect du délai minimal inter-relances (`7 jours`) et du plafond (`3 relances`)** | `services/reminder_engine.py` (`verify_and_simulate_send`) | Blocage `MIN_DELAY_NOT_ELAPSED` si une relance précédente a été envoyée il y a moins de `MIN_DAYS_BETWEEN_REMINDERS = 7` jours, et `MAX_LIMIT_REACHED` au-delà de `3` relances. |
+| **A.7** | **Arithmétique monétaire exacte `Decimal` (`ROUND_HALF_UP`), homogénéité de devise (`FCFA`), cohérence chronologique et démonstrateur live 20 threads** | `services/calculator.py`, `models/schemas.py`, `services/importer.py`, `POST /api/system/concurrency-proof` | Aucune dérive binaire IEEE-754, séparation des 3 dimensions de statut (`statut_calcule`, `statut_paiement`, `statut_echeance`), rejet des paiements/avoirs antérieurs à `date_emission` et des devises hétérogènes, et bouton de preuve en direct de 20 threads simultanés. |
 
 ---
 
