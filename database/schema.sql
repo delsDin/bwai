@@ -115,6 +115,8 @@ CREATE TABLE IF NOT EXISTS reminders (
     ),
     requiert_revue_humaine INTEGER NOT NULL DEFAULT 0,
     motif_blocage TEXT,
+    cree_par TEXT NOT NULL DEFAULT 'SYSTEME',
+    valide_par TEXT,
     idempotency_key TEXT NOT NULL UNIQUE,
     -- Cle anti-doublon metier : une seule relance par facture et par niveau de relance (Section 9 / Test T10)
     UNIQUE(invoice_id, niveau_relance)
@@ -139,5 +141,21 @@ CREATE TABLE IF NOT EXISTS audit_logs (
     objet_id TEXT NOT NULL,
     ancienne_valeur TEXT,
     nouvelle_valeur TEXT,
-    motif TEXT
+    motif TEXT,
+    prev_hash TEXT NOT NULL DEFAULT 'GENESIS',
+    entry_hash TEXT NOT NULL DEFAULT ''
 );
+
+-- Protection d'immuabilite du journal d'audit (Partie C.3 : interdiction d'UPDATE et de DELETE)
+CREATE TRIGGER IF NOT EXISTS trg_audit_logs_no_update
+BEFORE UPDATE ON audit_logs
+BEGIN
+    SELECT RAISE(ABORT, 'Journal d audit immuable : modification interdite');
+END;
+
+CREATE TRIGGER IF NOT EXISTS trg_audit_logs_no_delete
+BEFORE DELETE ON audit_logs
+WHEN (SELECT value FROM settings WHERE key = 'allow_audit_reset') IS NOT '1'
+BEGIN
+    SELECT RAISE(ABORT, 'Journal d audit immuable : suppression interdite');
+END;

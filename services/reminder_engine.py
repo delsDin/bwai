@@ -65,6 +65,7 @@ def prepare_reminder_for_invoice(
     requested_channel: Optional[str] = None,
     enable_pre_due_reminder: bool = False,
     db_path: Path | None = None,
+    acteur: str = "SYSTEME",
 ) -> Dict[str, Any]:
     """
     Prepare de maniere idempotente et atomique (BEGIN IMMEDIATE) une relance ou une tache de revue humaine pour une facture.
@@ -170,9 +171,9 @@ def prepare_reminder_for_invoice(
             """
             INSERT OR IGNORE INTO reminders (
                 reminder_id, invoice_id, canal, date_creation, niveau_relance,
-                contenu_message, statut_action, requiert_revue_humaine, motif_blocage, idempotency_key
+                contenu_message, statut_action, requiert_revue_humaine, motif_blocage, cree_par, idempotency_key
             )
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 reminder_id,
@@ -184,6 +185,7 @@ def prepare_reminder_for_invoice(
                 statut_action,
                 1 if requiert_revue else 0,
                 motif_blocage,
+                acteur,
                 idempotency_key,
             ),
         )
@@ -203,7 +205,7 @@ def prepare_reminder_for_invoice(
             }
 
         log_event(
-            acteur="SYSTEME",
+            acteur=acteur,
             action="PREPARATION_RELANCE",
             objet_type="RELANCE",
             objet_id=reminder_id,
@@ -223,17 +225,18 @@ def prepare_reminder_for_invoice(
             "statut_action": statut_action,
             "requiert_revue_humaine": requiert_revue,
             "motif_blocage": motif_blocage,
+            "cree_par": acteur,
             "contenu_message": message,
         }
 
 
-def prepare_all_reminders(db_path: Path | None = None) -> List[Dict[str, Any]]:
+def prepare_all_reminders(db_path: Path | None = None, acteur: str = "SYSTEME") -> List[Dict[str, Any]]:
     with db_session(db_path) as conn:
         rows = conn.execute(
             "SELECT invoice_id FROM invoices ORDER BY score_priorite DESC, jours_retard DESC"
         ).fetchall()
         inv_ids = [r["invoice_id"] for r in rows]
-    return [prepare_reminder_for_invoice(inv_id, db_path=db_path) for inv_id in inv_ids]
+    return [prepare_reminder_for_invoice(inv_id, db_path=db_path, acteur=acteur) for inv_id in inv_ids]
 
 
 def apply_human_review(
@@ -242,9 +245,12 @@ def apply_human_review(
     motif: str,
     nouveau_message: Optional[str] = None,
     db_path: Path | None = None,
+    acteur: str = "GESTIONNAIRE",
 ) -> Dict[str, Any]:
     """
-    Module H - Permet a un humain d'APPROUVER, MODIFIER, SUSPENDRE ou REJETER une relance en file de revue.
+    Module H & Partie C.2 - Permet a un humain d'APPROUVER, MODIFIER, SUSPENDRE ou REJETER une relance
+    en file de revue en respectant le principe des quatre yeux (l'auteur nomme d'une relance ne peut pas
+    l'approuver lui-meme).
     """
     decision_upper = decision.upper()
     if decision_upper not in ("APPROUVER", "MODIFIER", "SUSPENDRE", "REJETER"):
@@ -254,6 +260,17 @@ def apply_human_review(
         rem = conn.execute("SELECT * FROM reminders WHERE reminder_id = ?", (reminder_id,)).fetchone()
         if not rem:
             raise ValueError(f"Relance introuvable : {reminder_id}")
+
+        cree_par = str(rem["cree_par"] or "SYSTEME")
+        if (
+            decision_upper in ("APPROUVER", "MODIFIER")
+            and cree_par not in ("SYSTEME", "GESTIONNAIRE")
+            and acteur == cree_par
+        ):
+            raise PermissionError(
+                f"Violation du principe des 4 yeux : l'acteur '{acteur}' a prepare cette relance "
+                f"et ne peut pas la valider lui-meme."
+            )
 
         ancien_statut = str(rem["statut_action"])
         message_final = nouveau_message.strip() if (nouveau_message and nouveau_message.strip()) else str(rem["contenu_message"])
@@ -270,14 +287,15 @@ def apply_human_review(
             UPDATE reminders
             SET statut_action = ?,
                 contenu_message = ?,
-                motif_blocage = ?
+                motif_blocage = ?,
+                valide_par = ?
             WHERE reminder_id = ?
             """,
-            (nouveau_statut, message_final, motif, reminder_id),
+            (nouveau_statut, message_final, motif, acteur, reminder_id),
         )
 
         log_event(
-            acteur="GESTIONNAIRE",
+            acteur=acteur,
             action=f"REVUE_HUMAINE_{decision_upper}",
             objet_type="RELANCE",
             objet_id=reminder_id,
@@ -292,6 +310,7 @@ def apply_human_review(
             "decision": decision_upper,
             "statut_action": nouveau_statut,
             "motif": motif,
+            "valide_par": acteur,
             "contenu_message": message_final,
         }
 
@@ -300,10 +319,12 @@ def verify_and_simulate_send(
     reminder_id: str,
     requested_channel: Optional[str] = None,
     db_path: Path | None = None,
+    acteur: str = "SYSTEME",
 ) -> Dict[str, Any]:
     """
-    Module I - Garde-fou obligatoire juste avant l'envoi simule (Tests T8, T10, T11) execute
-    dans une transaction atomique unique (BEGIN IMMEDIATE) pour eliminer toute condition de course :
+    Module I & Partie C.5 - Garde-fou obligatoire juste avant l'envoi simule (Tests T8, T10, T11) execute
+    dans une transaction atomique unique (BEGIN IMMEDIATE) :
+    0. Si l'interrupteur d'arret d'urgence (emergency_stop = '1') est actif : bloque tout envoi.
     1. Si la relance est deja SIMULEE : bloque tout double envoi (Test T10).
     2. Recalcule le solde et le statut de la facture en temps reel dans la meme transaction.
     3. Si la facture a ete soldee, contestee ou couverte par un echeancier entre-temps :
@@ -319,6 +340,27 @@ def verify_and_simulate_send(
             raise ValueError(f"Relance introuvable : {reminder_id}")
         invoice_id = str(rem["invoice_id"])
         statut_actuel = str(rem["statut_action"])
+
+        # Garde-fou 0 (Partie C.5) : Interrupteur d'arret d'urgence global (Kill-Switch)
+        stop_row = conn.execute("SELECT value FROM settings WHERE key = 'emergency_stop'").fetchone()
+        if stop_row and stop_row["value"] == "1":
+            reason = "Envoi suspendu : mode d'arret d'urgence (Kill-Switch) actif sur le systeme."
+            log_event(
+                acteur=acteur,
+                action="BLOCAGE_ARRET_URGENCE",
+                objet_type="RELANCE",
+                objet_id=reminder_id,
+                ancienne_valeur=statut_actuel,
+                nouvelle_valeur=statut_actuel,
+                motif=reason,
+                conn=conn,
+            )
+            return {
+                "status": "BLOCKED_EMERGENCY_STOP",
+                "reminder_id": reminder_id,
+                "statut_action": statut_actuel,
+                "reason": reason,
+            }
 
         # Protection anti-double envoi (Test T10)
         if statut_actuel == "SIMULEE":
@@ -458,7 +500,7 @@ def verify_and_simulate_send(
             }
 
         log_event(
-            acteur="SYSTEME",
+            acteur=acteur,
             action="ENVOI_SIMULE_EFFECTUE",
             objet_type="RELANCE",
             objet_id=reminder_id,

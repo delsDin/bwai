@@ -117,3 +117,9 @@ class HumanReviewDecisionRequest(BaseModel):
 
 class AIClassificationRequest(BaseModel):
     message_client: str = Field(..., min_length=2)
+
+
+class EmergencyStopRequest(BaseModel):
+    active: bool = Field(..., description="True pour activer le mode d'arret d'urgence, False pour le desactiver")
+    motif: str = Field("Decision de securite", min_length=3)
+

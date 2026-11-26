@@ -69,6 +69,9 @@ def init_db(db_path: Path | None = None) -> None:
             ("high_amount_threshold", str(config.DEFAULT_HIGH_AMOUNT_THRESHOLD), "Seuil gros montant (FCFA) pour revue humaine obligatoire"),
             ("ai_confidence_threshold", str(config.DEFAULT_AI_CONFIDENCE_THRESHOLD), "Seuil de confiance IA minimal avant revue humaine"),
             ("default_channel", config.DEFAULT_CHANNEL, "Canal simulé par défaut (WHATSAPP, SMS, EMAIL)"),
+            ("emergency_stop", "0", "Interrupteur d'arrêt d'urgence (1 = bloque tout envoi simulé)"),
+            ("require_auth", "0", "Mode authentification stricte sur toutes les routes (0 ou 1)"),
+            ("allow_audit_reset", "0", "Autorisation interne temporaire de purge lors du reset de démo"),
         ]
         conn.executemany(
             "INSERT OR IGNORE INTO settings (key, value, description) VALUES (?, ?, ?)",

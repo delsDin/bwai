@@ -20,6 +20,7 @@ def record_simulated_payment(
     reference_fictive: str,
     date_paiement: date | None = None,
     db_path: Path | None = None,
+    acteur: str = "GESTIONNAIRE",
 ) -> Dict[str, Any]:
     """
     Enregistre un paiement simule de maniere idempotente et atomique (BEGIN IMMEDIATE).
@@ -96,7 +97,7 @@ def record_simulated_payment(
             cancelled_reminders = int(cur.rowcount)
 
         log_event(
-            acteur="GESTIONNAIRE",
+            acteur=acteur,
             action="PAIEMENT_SIMULE_ENREGISTRE",
             objet_type="FACTURE",
             objet_id=invoice_id,

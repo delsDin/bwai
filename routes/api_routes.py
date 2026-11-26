@@ -4,25 +4,29 @@ Couvre tous les modules A a L du Guide BWAI 2026.
 """
 from pathlib import Path
 import tempfile
-from typing import Optional
+from typing import Dict, Optional
 
-from fastapi import APIRouter, HTTPException, UploadFile, File
+from fastapi import APIRouter, Depends, HTTPException, UploadFile, File
 
 from models.repositories import (
     get_dashboard_kpis,
     get_invoice_detail,
+    get_settings,
     list_audit_logs,
     list_import_errors,
     list_invoices,
     list_reminders,
     reset_and_load_demo_portfolio,
+    update_setting,
 )
 from models.schemas import (
     AIClassificationRequest,
+    EmergencyStopRequest,
     HumanReviewDecisionRequest,
     SimulatedPaymentRequest,
 )
 from services.ai_classifier import classifier_singleton
+from services.audit_logger import log_event, verify_audit_chain
 from services.calculator import recalculate_all_invoices
 from services.importer import import_portfolio_file
 from services.payment_service import record_simulated_payment
@@ -33,6 +37,7 @@ from services.reminder_engine import (
     prepare_reminder_for_invoice,
     verify_and_simulate_send,
 )
+from services.security import require_roles
 
 router = APIRouter(tags=["API Recouvrement BWAI 2026"])
 
@@ -94,48 +99,77 @@ def api_list_reminders(statut: Optional[str] = None):
 
 
 @router.post("/reminders/prepare-all")
-def api_prepare_all_reminders():
-    results = prepare_all_reminders()
-    return {"status": "ok", "results": results}
+def api_prepare_all_reminders(
+    actor: Dict[str, str] = Depends(require_roles("GESTIONNAIRE", "VALIDATEUR", "ADMIN")),
+):
+    results = prepare_all_reminders(acteur=actor["username"])
+    return {"status": "ok", "actor": actor["username"], "results": results}
 
 
 @router.post("/reminders/prepare/{invoice_id}")
-def api_prepare_single_reminder(invoice_id: str, canal: Optional[str] = None):
+def api_prepare_single_reminder(
+    invoice_id: str,
+    canal: Optional[str] = None,
+    actor: Dict[str, str] = Depends(require_roles("GESTIONNAIRE", "VALIDATEUR", "ADMIN")),
+):
     try:
-        return prepare_reminder_for_invoice(invoice_id, requested_channel=canal)
+        return prepare_reminder_for_invoice(
+            invoice_id,
+            requested_channel=canal,
+            acteur=actor["username"],
+        )
     except ValueError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
 
 
 @router.post("/review/{reminder_id}")
-def api_apply_human_review(reminder_id: str, payload: HumanReviewDecisionRequest):
+def api_apply_human_review(
+    reminder_id: str,
+    payload: HumanReviewDecisionRequest,
+    actor: Dict[str, str] = Depends(require_roles("VALIDATEUR", "ADMIN")),
+):
     try:
         return apply_human_review(
             reminder_id=reminder_id,
             decision=payload.decision,
             motif=payload.motif,
             nouveau_message=payload.nouveau_message,
+            acteur=actor["username"],
         )
+    except PermissionError as exc:
+        raise HTTPException(status_code=403, detail=str(exc)) from exc
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
 
 @router.post("/reminders/{reminder_id}/send")
-def api_verify_and_send_reminder(reminder_id: str, canal: Optional[str] = None):
+def api_verify_and_send_reminder(
+    reminder_id: str,
+    canal: Optional[str] = None,
+    actor: Dict[str, str] = Depends(require_roles("GESTIONNAIRE", "VALIDATEUR", "ADMIN")),
+):
     try:
-        return verify_and_simulate_send(reminder_id=reminder_id, requested_channel=canal)
+        return verify_and_simulate_send(
+            reminder_id=reminder_id,
+            requested_channel=canal,
+            acteur=actor["username"],
+        )
     except ValueError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
 
 
 @router.post("/payments/simulate")
-def api_simulate_payment(payload: SimulatedPaymentRequest):
+def api_simulate_payment(
+    payload: SimulatedPaymentRequest,
+    actor: Dict[str, str] = Depends(require_roles("GESTIONNAIRE", "VALIDATEUR", "ADMIN")),
+):
     try:
         return record_simulated_payment(
             invoice_id=payload.invoice_id,
             montant=payload.montant,
             reference_fictive=payload.reference_fictive,
             date_paiement=payload.date_paiement,
+            acteur=actor["username"],
         )
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
@@ -147,15 +181,50 @@ def classify_client_message(payload: AIClassificationRequest):
 
 
 @router.post("/system/recover")
-def api_recover_after_interruption():
+def api_recover_after_interruption(
+    actor: Dict[str, str] = Depends(require_roles("VALIDATEUR", "ADMIN")),
+):
     return resume_after_interruption()
 
 
 @router.post("/system/reset-demo")
-def api_reset_demo():
+def api_reset_demo(
+    actor: Dict[str, str] = Depends(require_roles("ADMIN")),
+):
     return reset_and_load_demo_portfolio()
+
+
+@router.post("/system/emergency-stop")
+def api_set_emergency_stop(
+    payload: EmergencyStopRequest,
+    actor: Dict[str, str] = Depends(require_roles("ADMIN")),
+):
+    settings = get_settings()
+    old_val = settings.get("emergency_stop", "0")
+    new_val = "1" if payload.active else "0"
+    update_setting("emergency_stop", new_val)
+    log_event(
+        acteur=actor["username"],
+        action="BASCULE_ARRET_URGENCE",
+        objet_type="SYSTEME",
+        objet_id="EMERGENCY-STOP",
+        ancienne_valeur=f"emergency_stop={old_val}",
+        nouvelle_valeur=f"emergency_stop={new_val}",
+        motif=payload.motif,
+    )
+    return {
+        "status": "ok",
+        "emergency_stop": payload.active,
+        "actor": actor["username"],
+        "motif": payload.motif,
+    }
 
 
 @router.get("/audit-logs")
 def api_get_audit_logs(limit: int = 150):
     return {"audit_logs": list_audit_logs(limit=limit)}
+
+
+@router.get("/audit-logs/verify")
+def api_verify_audit_logs():
+    return verify_audit_chain()

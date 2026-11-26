@@ -8,6 +8,7 @@ from typing import Any, Dict, List
 from database.db import db_session, init_db
 from services.importer import import_portfolio_dict
 from services.reminder_engine import prepare_all_reminders
+from services.security import mask_contact
 
 DEMO_PORTFOLIO_DATA: Dict[str, List[Dict[str, Any]]] = {
     "clients": [
@@ -172,6 +173,8 @@ def reset_and_load_demo_portfolio(db_path: Path | None = None) -> Dict[str, Any]
     """Reinitialise toutes les tables SQLite et charge le portefeuille fictif de demonstration."""
     init_db(db_path)
     with db_session(db_path) as conn:
+        conn.execute("UPDATE settings SET value = '1' WHERE key = 'allow_audit_reset'")
+        conn.execute("UPDATE settings SET value = '0' WHERE key = 'emergency_stop'")
         for table in (
             "reminders",
             "disputes",
@@ -184,6 +187,7 @@ def reset_and_load_demo_portfolio(db_path: Path | None = None) -> Dict[str, Any]
             "audit_logs",
         ):
             conn.execute(f"DELETE FROM {table}")
+        conn.execute("UPDATE settings SET value = '0' WHERE key = 'allow_audit_reset'")
 
     import_res = import_portfolio_dict(DEMO_PORTFOLIO_DATA, db_path=db_path)
     reminders_res = prepare_all_reminders(db_path=db_path)
@@ -277,7 +281,12 @@ def list_invoices(statut_filter: str | None = None, db_path: Path | None = None)
             params = (statut_filter,)
         query += " ORDER BY i.eligible_relance DESC, i.score_priorite DESC, i.jours_retard DESC"
         rows = conn.execute(query, params).fetchall()
-        return [dict(r) for r in rows]
+        results = []
+        for r in rows:
+            item = dict(r)
+            item["contact_masque"] = mask_contact(item.get("contact_simule"))
+            results.append(item)
+        return results
 
 
 def get_invoice_detail(invoice_id: str, db_path: Path | None = None) -> Dict[str, Any] | None:
@@ -321,8 +330,11 @@ def get_invoice_detail(invoice_id: str, db_path: Path | None = None) -> Dict[str
             ).fetchall()
         ]
 
+        inv_dict = dict(inv)
+        inv_dict["contact_masque"] = mask_contact(inv_dict.get("contact_simule"))
+
         return {
-            "invoice": dict(inv),
+            "invoice": inv_dict,
             "payments": payments,
             "credit_notes": credit_notes,
             "installment_plans": plans,
