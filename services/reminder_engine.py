@@ -7,7 +7,7 @@ from pathlib import Path
 from typing import Dict, Any, List, Optional
 
 import config
-from database.db import db_session
+from database.db import db_atomic, db_session
 from services.ai_classifier import classifier_singleton
 from services.audit_logger import log_event
 from services.calculator import recalculate_invoice
@@ -67,7 +67,7 @@ def prepare_reminder_for_invoice(
     db_path: Path | None = None,
 ) -> Dict[str, Any]:
     """
-    Prepare de maniere idempotente une relance ou une tache de revue humaine pour une facture.
+    Prepare de maniere idempotente et atomique (BEGIN IMMEDIATE) une relance ou une tache de revue humaine pour une facture.
     Respecte :
     - T1 / T4 / T6 : Pas de relance de retard pour une facture NON_ECHUE, SOLDEE ou COUVERTE_PAR_ECHEANCIER.
     - T5 : Une facture CONTESTEE est placee dans la file de revue humaine (relance suspendue).
@@ -75,9 +75,9 @@ def prepare_reminder_for_invoice(
     - Cas incertains IA (confiance < 0.75) ou historique inconnu -> File de revue humaine.
     - T10 : Cle anti-doublon UNIQUE(invoice_id, niveau_relance).
     """
-    recalculate_invoice(invoice_id, db_path=db_path)
+    with db_atomic(db_path) as conn:
+        recalculate_invoice(invoice_id, conn=conn)
 
-    with db_session(db_path) as conn:
         row_ref = conn.execute("SELECT value FROM settings WHERE key = 'reference_date'").fetchone()
         ref_date = date.fromisoformat(row_ref["value"]) if row_ref else config.DEFAULT_REFERENCE_DATE
 
@@ -120,20 +120,6 @@ def prepare_reminder_for_invoice(
                 return {"status": "SKIPPED", "reason": "Facture non echue (rappel pre-echeance desactive)."}
             if niveau is None:
                 return {"status": "SKIPPED", "reason": "Facture non echue, pas de relance de retard."}
-
-        # Verification d'idempotence (Test T10) : existe-t-il deja une relance pour (invoice_id, niveau) ?
-        existing = conn.execute(
-            "SELECT * FROM reminders WHERE invoice_id = ? AND niveau_relance = ?",
-            (invoice_id, niveau),
-        ).fetchone()
-        if existing:
-            return {
-                "status": "ALREADY_EXISTS",
-                "duplicate_prevented": True,
-                "reminder_id": existing["reminder_id"],
-                "statut_action": existing["statut_action"],
-                "niveau_relance": existing["niveau_relance"],
-            }
 
         canal = requested_channel or str(inv["canal_prefere"])
         reasons_for_review: List[str] = []
@@ -180,9 +166,9 @@ def prepare_reminder_for_invoice(
         reminder_id = f"REL-{invoice_id}-{niveau}"
         now_iso = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S UTC")
 
-        conn.execute(
+        cur_ins = conn.execute(
             """
-            INSERT INTO reminders (
+            INSERT OR IGNORE INTO reminders (
                 reminder_id, invoice_id, canal, date_creation, niveau_relance,
                 contenu_message, statut_action, requiert_revue_humaine, motif_blocage, idempotency_key
             )
@@ -202,29 +188,43 @@ def prepare_reminder_for_invoice(
             ),
         )
 
-    log_event(
-        acteur="SYSTEME",
-        action="PREPARATION_RELANCE",
-        objet_type="RELANCE",
-        objet_id=reminder_id,
-        ancienne_valeur=None,
-        nouvelle_valeur=f"Statut={statut_action}, Niveau={niveau}, Canal={canal}",
-        motif=motif_blocage or "Relance standard prete pour simulation d'envoi",
-        db_path=db_path,
-    )
+        # Verification d'idempotence atomique (Test T10) : si rowcount == 0, la relance existait deja
+        if cur_ins.rowcount == 0:
+            existing = conn.execute(
+                "SELECT * FROM reminders WHERE invoice_id = ? AND niveau_relance = ?",
+                (invoice_id, niveau),
+            ).fetchone()
+            return {
+                "status": "ALREADY_EXISTS",
+                "duplicate_prevented": True,
+                "reminder_id": existing["reminder_id"],
+                "statut_action": existing["statut_action"],
+                "niveau_relance": existing["niveau_relance"],
+            }
 
-    return {
-        "status": "CREATED",
-        "duplicate_prevented": False,
-        "reminder_id": reminder_id,
-        "invoice_id": invoice_id,
-        "niveau_relance": niveau,
-        "canal": canal,
-        "statut_action": statut_action,
-        "requiert_revue_humaine": requiert_revue,
-        "motif_blocage": motif_blocage,
-        "contenu_message": message,
-    }
+        log_event(
+            acteur="SYSTEME",
+            action="PREPARATION_RELANCE",
+            objet_type="RELANCE",
+            objet_id=reminder_id,
+            ancienne_valeur=None,
+            nouvelle_valeur=f"Statut={statut_action}, Niveau={niveau}, Canal={canal}",
+            motif=motif_blocage or "Relance standard prete pour simulation d'envoi",
+            conn=conn,
+        )
+
+        return {
+            "status": "CREATED",
+            "duplicate_prevented": False,
+            "reminder_id": reminder_id,
+            "invoice_id": invoice_id,
+            "niveau_relance": niveau,
+            "canal": canal,
+            "statut_action": statut_action,
+            "requiert_revue_humaine": requiert_revue,
+            "motif_blocage": motif_blocage,
+            "contenu_message": message,
+        }
 
 
 def prepare_all_reminders(db_path: Path | None = None) -> List[Dict[str, Any]]:
@@ -250,7 +250,7 @@ def apply_human_review(
     if decision_upper not in ("APPROUVER", "MODIFIER", "SUSPENDRE", "REJETER"):
         raise ValueError(f"Decision invalide : {decision}")
 
-    with db_session(db_path) as conn:
+    with db_atomic(db_path) as conn:
         rem = conn.execute("SELECT * FROM reminders WHERE reminder_id = ?", (reminder_id,)).fetchone()
         if not rem:
             raise ValueError(f"Relance introuvable : {reminder_id}")
@@ -276,24 +276,24 @@ def apply_human_review(
             (nouveau_statut, message_final, motif, reminder_id),
         )
 
-    log_event(
-        acteur="GESTIONNAIRE",
-        action=f"REVUE_HUMAINE_{decision_upper}",
-        objet_type="RELANCE",
-        objet_id=reminder_id,
-        ancienne_valeur=ancien_statut,
-        nouvelle_valeur=nouveau_statut,
-        motif=motif,
-        db_path=db_path,
-    )
+        log_event(
+            acteur="GESTIONNAIRE",
+            action=f"REVUE_HUMAINE_{decision_upper}",
+            objet_type="RELANCE",
+            objet_id=reminder_id,
+            ancienne_valeur=ancien_statut,
+            nouvelle_valeur=nouveau_statut,
+            motif=motif,
+            conn=conn,
+        )
 
-    return {
-        "reminder_id": reminder_id,
-        "decision": decision_upper,
-        "statut_action": nouveau_statut,
-        "motif": motif,
-        "contenu_message": message_final,
-    }
+        return {
+            "reminder_id": reminder_id,
+            "decision": decision_upper,
+            "statut_action": nouveau_statut,
+            "motif": motif,
+            "contenu_message": message_final,
+        }
 
 
 def verify_and_simulate_send(
@@ -302,16 +302,18 @@ def verify_and_simulate_send(
     db_path: Path | None = None,
 ) -> Dict[str, Any]:
     """
-    Module I - Garde-fou obligatoire juste avant l'envoi simule (Tests T8, T10, T11) :
+    Module I - Garde-fou obligatoire juste avant l'envoi simule (Tests T8, T10, T11) execute
+    dans une transaction atomique unique (BEGIN IMMEDIATE) pour eliminer toute condition de course :
     1. Si la relance est deja SIMULEE : bloque tout double envoi (Test T10).
-    2. Recalcule le solde et le statut de la facture en temps reel.
+    2. Recalcule le solde et le statut de la facture en temps reel dans la meme transaction.
     3. Si la facture a ete soldee, contestee ou couverte par un echeancier entre-temps :
        ANNULE automatiquement la relance (Test T11).
     4. Verifie la preference de contact et le consentement client : bloque si incompatible (Test T8).
     5. Verifie que la relance a bien ete APPROUVEE si elle exigeait une validation humaine (Test T7).
-    6. Sinon : passe la relance a SIMULEE et horodate l'envoi.
+    6. Sinon : passe atomiquement la relance de APPROUVEE a SIMULEE (WHERE statut_action = 'APPROUVEE')
+       et horodate l'envoi.
     """
-    with db_session(db_path) as conn:
+    with db_atomic(db_path) as conn:
         rem = conn.execute("SELECT * FROM reminders WHERE reminder_id = ?", (reminder_id,)).fetchone()
         if not rem:
             raise ValueError(f"Relance introuvable : {reminder_id}")
@@ -328,17 +330,9 @@ def verify_and_simulate_send(
                 "message": "Cette relance a deja ete envoyee en simulation (double envoi bloque).",
             }
 
-    # 1. Recalcul deterministe juste avant l'envoi (Module I)
-    fresh_inv = recalculate_invoice(invoice_id, db_path=db_path)
+        # 1. Recalcul deterministe juste avant l'envoi dans la meme transaction verrouillee (Module I)
+        fresh_inv = recalculate_invoice(invoice_id, conn=conn)
 
-    outcome: Optional[Dict[str, Any]] = None
-    audit_action: Optional[str] = None
-    audit_old_val: Optional[str] = None
-    audit_new_val: Optional[str] = None
-    audit_reason: Optional[str] = None
-
-    with db_session(db_path) as conn:
-        rem = conn.execute("SELECT * FROM reminders WHERE reminder_id = ?", (reminder_id,)).fetchone()
         inv_client = conn.execute(
             """
             SELECT i.*, c.canal_prefere, c.consentement_contact
@@ -363,11 +357,17 @@ def verify_and_simulate_send(
                 "UPDATE reminders SET statut_action = 'ANNULEE', motif_blocage = ? WHERE reminder_id = ?",
                 (reason, reminder_id),
             )
-            audit_action = "ANNULATION_PRE_ENVOI"
-            audit_old_val = ancien_statut_rem
-            audit_new_val = "ANNULEE"
-            audit_reason = reason
-            outcome = {
+            log_event(
+                acteur="SYSTEME",
+                action="ANNULATION_PRE_ENVOI",
+                objet_type="RELANCE",
+                objet_id=reminder_id,
+                ancienne_valeur=ancien_statut_rem,
+                nouvelle_valeur="ANNULEE",
+                motif=reason,
+                conn=conn,
+            )
+            return {
                 "status": "CANCELLED_PRE_SEND",
                 "reminder_id": reminder_id,
                 "statut_action": "ANNULEE",
@@ -375,7 +375,7 @@ def verify_and_simulate_send(
             }
 
         # Garde-fou B : Preference de contact et consentement (Test T8)
-        elif int(inv_client["consentement_contact"]) == 0 or canal_effectif != str(inv_client["canal_prefere"]):
+        if int(inv_client["consentement_contact"]) == 0 or canal_effectif != str(inv_client["canal_prefere"]):
             reason = (
                 f"Envoi bloque : canal ({canal_effectif}) ou consentement ({inv_client['consentement_contact']}) "
                 f"incompatible avec la preference client ({inv_client['canal_prefere']})"
@@ -384,11 +384,17 @@ def verify_and_simulate_send(
                 "UPDATE reminders SET statut_action = 'ANNULEE', motif_blocage = ? WHERE reminder_id = ?",
                 (reason, reminder_id),
             )
-            audit_action = "BLOCAGE_CANAL_INCOMPATIBLE"
-            audit_old_val = ancien_statut_rem
-            audit_new_val = "ANNULEE"
-            audit_reason = reason
-            outcome = {
+            log_event(
+                acteur="SYSTEME",
+                action="BLOCAGE_CANAL_INCOMPATIBLE",
+                objet_type="RELANCE",
+                objet_id=reminder_id,
+                ancienne_valeur=ancien_statut_rem,
+                nouvelle_valeur="ANNULEE",
+                motif=reason,
+                conn=conn,
+            )
+            return {
                 "status": "BLOCKED_CHANNEL_PREFERENCE",
                 "reminder_id": reminder_id,
                 "statut_action": "ANNULEE",
@@ -396,77 +402,77 @@ def verify_and_simulate_send(
             }
 
         # Garde-fou C : Validation humaine obligatoire non encore accordee (Test T7)
-        elif rem["statut_action"] == "EN_ATTENTE_VALIDATION":
-            outcome = {
+        if ancien_statut_rem == "EN_ATTENTE_VALIDATION":
+            return {
                 "status": "PENDING_HUMAN_REVIEW",
                 "reminder_id": reminder_id,
                 "statut_action": "EN_ATTENTE_VALIDATION",
                 "reason": "Validation humaine obligatoire avant toute simulation d'envoi.",
             }
 
-        elif rem["statut_action"] in ("ANNULEE", "REJETEE"):
-            outcome = {
+        if ancien_statut_rem in ("ANNULEE", "REJETEE"):
+            return {
                 "status": "NOT_SENDABLE",
                 "reminder_id": reminder_id,
-                "statut_action": rem["statut_action"],
-                "reason": f"Relance au statut {rem['statut_action']}, envoi impossible.",
+                "statut_action": ancien_statut_rem,
+                "reason": f"Relance au statut {ancien_statut_rem}, envoi impossible.",
             }
 
-        else:
-            # Garde-fou D : Limite maximale de relances deja simulees sur cette facture
-            sent_count_row = conn.execute(
-                "SELECT COUNT(*) AS cnt FROM reminders WHERE invoice_id = ? AND statut_action = 'SIMULEE'",
-                (invoice_id,),
-            ).fetchone()
-            if int(sent_count_row["cnt"]) >= config.MAX_REMINDERS_PER_INVOICE:
-                reason = f"Plafond de {config.MAX_REMINDERS_PER_INVOICE} relances atteint pour la facture {invoice_id}"
-                conn.execute(
-                    "UPDATE reminders SET statut_action = 'ANNULEE', motif_blocage = ? WHERE reminder_id = ?",
-                    (reason, reminder_id),
-                )
-                outcome = {
-                    "status": "MAX_LIMIT_REACHED",
-                    "reminder_id": reminder_id,
-                    "statut_action": "ANNULEE",
-                    "reason": reason,
-                }
-            else:
-                # Tous les controles ont reussi : simulation d'envoi
-                now_iso = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S UTC")
-                conn.execute(
-                    """
-                    UPDATE reminders
-                    SET statut_action = 'SIMULEE',
-                        date_envoi_simule = ?,
-                        canal = ?
-                    WHERE reminder_id = ?
-                    """,
-                    (now_iso, canal_effectif, reminder_id),
-                )
-                audit_action = "ENVOI_SIMULE_EFFECTUE"
-                audit_old_val = "APPROUVEE"
-                audit_new_val = "SIMULEE"
-                audit_reason = f"Envoi simule sur {canal_effectif} apres reverification du solde ({fresh_inv['solde_restant']:,.0f} FCFA)"
-                outcome = {
-                    "status": "SENT_SIMULATED",
-                    "duplicate_prevented": False,
-                    "reminder_id": reminder_id,
-                    "invoice_id": invoice_id,
-                    "canal": canal_effectif,
-                    "statut_action": "SIMULEE",
-                    "solde_verifie": fresh_inv["solde_restant"],
-                }
+        # Garde-fou D : Limite maximale de relances deja simulees sur cette facture
+        sent_count_row = conn.execute(
+            "SELECT COUNT(*) AS cnt FROM reminders WHERE invoice_id = ? AND statut_action = 'SIMULEE'",
+            (invoice_id,),
+        ).fetchone()
+        if int(sent_count_row["cnt"]) >= config.MAX_REMINDERS_PER_INVOICE:
+            reason = f"Plafond de {config.MAX_REMINDERS_PER_INVOICE} relances atteint pour la facture {invoice_id}"
+            conn.execute(
+                "UPDATE reminders SET statut_action = 'ANNULEE', motif_blocage = ? WHERE reminder_id = ?",
+                (reason, reminder_id),
+            )
+            return {
+                "status": "MAX_LIMIT_REACHED",
+                "reminder_id": reminder_id,
+                "statut_action": "ANNULEE",
+                "reason": reason,
+            }
 
-    if audit_action:
+        # Tous les controles ont reussi : transition atomique conditionnelle vers SIMULEE
+        now_iso = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S UTC")
+        cur_send = conn.execute(
+            """
+            UPDATE reminders
+            SET statut_action = 'SIMULEE',
+                date_envoi_simule = ?,
+                canal = ?
+            WHERE reminder_id = ? AND statut_action = 'APPROUVEE'
+            """,
+            (now_iso, canal_effectif, reminder_id),
+        )
+        if cur_send.rowcount == 0:
+            return {
+                "status": "ALREADY_SENT",
+                "duplicate_prevented": True,
+                "reminder_id": reminder_id,
+                "statut_action": "SIMULEE",
+                "message": "Cette relance a deja ete envoyee en simulation (double envoi bloque).",
+            }
+
         log_event(
             acteur="SYSTEME",
-            action=audit_action,
+            action="ENVOI_SIMULE_EFFECTUE",
             objet_type="RELANCE",
             objet_id=reminder_id,
-            ancienne_valeur=audit_old_val,
-            nouvelle_valeur=audit_new_val,
-            motif=audit_reason,
-            db_path=db_path,
+            ancienne_valeur="APPROUVEE",
+            nouvelle_valeur="SIMULEE",
+            motif=f"Envoi simule sur {canal_effectif} apres reverification du solde ({fresh_inv['solde_restant']:,.0f} FCFA)",
+            conn=conn,
         )
-
-    return outcome
+        return {
+            "status": "SENT_SIMULATED",
+            "duplicate_prevented": False,
+            "reminder_id": reminder_id,
+            "invoice_id": invoice_id,
+            "canal": canal_effectif,
+            "statut_action": "SIMULEE",
+            "solde_verifie": fresh_inv["solde_restant"],
+        }

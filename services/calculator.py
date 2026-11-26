@@ -4,6 +4,7 @@ Aucun modele generatif n'est utilise ici (Phase 3 & 4 du Guide).
 """
 from datetime import date
 from pathlib import Path
+import sqlite3
 from typing import Tuple, Dict, Any
 
 import config
@@ -65,141 +66,152 @@ def determine_invoice_status(
     return "NON_ECHUE", statut_paiement
 
 
+def _recalculate_invoice_on_conn(
+    conn: sqlite3.Connection,
+    invoice_id: str,
+    reference_date: date | None = None,
+) -> Dict[str, Any]:
+    if reference_date is None:
+        row_ref = conn.execute("SELECT value FROM settings WHERE key = 'reference_date'").fetchone()
+        ref_date = date.fromisoformat(row_ref["value"]) if row_ref else config.DEFAULT_REFERENCE_DATE
+    else:
+        ref_date = reference_date
+
+    row_thresh = conn.execute("SELECT value FROM settings WHERE key = 'high_amount_threshold'").fetchone()
+    high_threshold = float(row_thresh["value"]) if row_thresh else config.DEFAULT_HIGH_AMOUNT_THRESHOLD
+
+    inv = conn.execute(
+        """
+        SELECT i.*, c.nb_factures_historiques, c.nb_retards_historiques
+        FROM invoices i
+        JOIN clients c ON i.client_id = c.client_id
+        WHERE i.invoice_id = ?
+        """,
+        (invoice_id,),
+    ).fetchone()
+    if not inv:
+        raise ValueError(f"Facture introuvable : {invoice_id}")
+
+    pay_row = conn.execute(
+        "SELECT COALESCE(SUM(montant), 0.0) AS total_paye FROM payments WHERE invoice_id = ? AND statut = 'VALIDE'",
+        (invoice_id,),
+    ).fetchone()
+    total_paye = float(pay_row["total_paye"])
+
+    avoir_row = conn.execute(
+        "SELECT COALESCE(SUM(montant), 0.0) AS total_avoirs FROM credit_notes WHERE invoice_id = ?",
+        (invoice_id,),
+    ).fetchone()
+    total_avoirs = float(avoir_row["total_avoirs"])
+
+    dispute_row = conn.execute(
+        "SELECT COUNT(*) AS cnt FROM disputes WHERE invoice_id = ? AND statut = 'OUVERT'",
+        (invoice_id,),
+    ).fetchone()
+    has_open_dispute = int(dispute_row["cnt"]) > 0
+
+    plan_row = conn.execute(
+        """
+        SELECT COUNT(*) AS cnt FROM installment_plans
+        WHERE invoice_id = ? AND statut = 'ACTIF' AND date_prochaine_echeance >= ?
+        """,
+        (invoice_id, ref_date.isoformat()),
+    ).fetchone()
+    has_active_plan = int(plan_row["cnt"]) > 0
+
+    # Analyse IA du message client si present
+    ai_res = classifier_singleton.classify(inv["dernier_message_client"])
+    ai_categorie = ai_res["categorie"]
+    ai_confiance = ai_res["confiance"]
+
+    solde_restant, jours_retard = compute_balance_and_delay(
+        montant_initial=float(inv["montant_initial"]),
+        total_paye=total_paye,
+        total_avoirs=total_avoirs,
+        date_echeance=date.fromisoformat(inv["date_echeance"]),
+        reference_date=ref_date,
+    )
+
+    statut_calcule, statut_paiement = determine_invoice_status(
+        solde_restant=solde_restant,
+        total_paye_ou_avoir=total_paye + total_avoirs,
+        date_echeance=date.fromisoformat(inv["date_echeance"]),
+        reference_date=ref_date,
+        has_open_dispute=has_open_dispute,
+        has_active_installment_plan=has_active_plan,
+    )
+
+    score_priorite, explication_score, eligible_relance, _ = compute_priority_score(
+        jours_retard=jours_retard,
+        solde_restant=solde_restant,
+        nb_retards_historiques=int(inv["nb_retards_historiques"]),
+        nb_factures_historiques=int(inv["nb_factures_historiques"]),
+        statut_calcule=statut_calcule,
+        high_amount_threshold=high_threshold,
+    )
+
+    conn.execute(
+        """
+        UPDATE invoices
+        SET total_paye = ?,
+            total_avoirs = ?,
+            solde_restant = ?,
+            jours_retard = ?,
+            statut_calcule = ?,
+            statut_paiement = ?,
+            score_priorite = ?,
+            explication_score = ?,
+            eligible_relance = ?,
+            ai_categorie = ?,
+            ai_confiance = ?
+        WHERE invoice_id = ?
+        """,
+        (
+            total_paye,
+            total_avoirs,
+            solde_restant,
+            jours_retard,
+            statut_calcule,
+            statut_paiement,
+            score_priorite,
+            explication_score,
+            1 if eligible_relance else 0,
+            ai_categorie,
+            ai_confiance,
+            invoice_id,
+        ),
+    )
+
+    return {
+        "invoice_id": invoice_id,
+        "total_paye": total_paye,
+        "total_avoirs": total_avoirs,
+        "solde_restant": solde_restant,
+        "jours_retard": jours_retard,
+        "statut_calcule": statut_calcule,
+        "statut_paiement": statut_paiement,
+        "score_priorite": score_priorite,
+        "explication_score": explication_score,
+        "eligible_relance": eligible_relance,
+        "ai_categorie": ai_categorie,
+        "ai_confiance": ai_confiance,
+    }
+
+
 def recalculate_invoice(
     invoice_id: str,
     reference_date: date | None = None,
     db_path: Path | None = None,
+    conn: sqlite3.Connection | None = None,
 ) -> Dict[str, Any]:
     """
     Recalcule en base de donnees le solde, les jours de retard, le statut, l'analyse IA et le score
     de priorite pour une facture donnee.
     """
-    with db_session(db_path) as conn:
-        if reference_date is None:
-            row_ref = conn.execute("SELECT value FROM settings WHERE key = 'reference_date'").fetchone()
-            ref_date = date.fromisoformat(row_ref["value"]) if row_ref else config.DEFAULT_REFERENCE_DATE
-        else:
-            ref_date = reference_date
-
-        row_thresh = conn.execute("SELECT value FROM settings WHERE key = 'high_amount_threshold'").fetchone()
-        high_threshold = float(row_thresh["value"]) if row_thresh else config.DEFAULT_HIGH_AMOUNT_THRESHOLD
-
-        inv = conn.execute(
-            """
-            SELECT i.*, c.nb_factures_historiques, c.nb_retards_historiques
-            FROM invoices i
-            JOIN clients c ON i.client_id = c.client_id
-            WHERE i.invoice_id = ?
-            """,
-            (invoice_id,),
-        ).fetchone()
-        if not inv:
-            raise ValueError(f"Facture introuvable : {invoice_id}")
-
-        pay_row = conn.execute(
-            "SELECT COALESCE(SUM(montant), 0.0) AS total_paye FROM payments WHERE invoice_id = ? AND statut = 'VALIDE'",
-            (invoice_id,),
-        ).fetchone()
-        total_paye = float(pay_row["total_paye"])
-
-        avoir_row = conn.execute(
-            "SELECT COALESCE(SUM(montant), 0.0) AS total_avoirs FROM credit_notes WHERE invoice_id = ?",
-            (invoice_id,),
-        ).fetchone()
-        total_avoirs = float(avoir_row["total_avoirs"])
-
-        dispute_row = conn.execute(
-            "SELECT COUNT(*) AS cnt FROM disputes WHERE invoice_id = ? AND statut = 'OUVERT'",
-            (invoice_id,),
-        ).fetchone()
-        has_open_dispute = int(dispute_row["cnt"]) > 0
-
-        plan_row = conn.execute(
-            """
-            SELECT COUNT(*) AS cnt FROM installment_plans
-            WHERE invoice_id = ? AND statut = 'ACTIF' AND date_prochaine_echeance >= ?
-            """,
-            (invoice_id, ref_date.isoformat()),
-        ).fetchone()
-        has_active_plan = int(plan_row["cnt"]) > 0
-
-        # Analyse IA du message client si present
-        ai_res = classifier_singleton.classify(inv["dernier_message_client"])
-        ai_categorie = ai_res["categorie"]
-        ai_confiance = ai_res["confiance"]
-
-        solde_restant, jours_retard = compute_balance_and_delay(
-            montant_initial=float(inv["montant_initial"]),
-            total_paye=total_paye,
-            total_avoirs=total_avoirs,
-            date_echeance=date.fromisoformat(inv["date_echeance"]),
-            reference_date=ref_date,
-        )
-
-        statut_calcule, statut_paiement = determine_invoice_status(
-            solde_restant=solde_restant,
-            total_paye_ou_avoir=total_paye + total_avoirs,
-            date_echeance=date.fromisoformat(inv["date_echeance"]),
-            reference_date=ref_date,
-            has_open_dispute=has_open_dispute,
-            has_active_installment_plan=has_active_plan,
-        )
-
-        score_priorite, explication_score, eligible_relance, _ = compute_priority_score(
-            jours_retard=jours_retard,
-            solde_restant=solde_restant,
-            nb_retards_historiques=int(inv["nb_retards_historiques"]),
-            nb_factures_historiques=int(inv["nb_factures_historiques"]),
-            statut_calcule=statut_calcule,
-            high_amount_threshold=high_threshold,
-        )
-
-        conn.execute(
-            """
-            UPDATE invoices
-            SET total_paye = ?,
-                total_avoirs = ?,
-                solde_restant = ?,
-                jours_retard = ?,
-                statut_calcule = ?,
-                statut_paiement = ?,
-                score_priorite = ?,
-                explication_score = ?,
-                eligible_relance = ?,
-                ai_categorie = ?,
-                ai_confiance = ?
-            WHERE invoice_id = ?
-            """,
-            (
-                total_paye,
-                total_avoirs,
-                solde_restant,
-                jours_retard,
-                statut_calcule,
-                statut_paiement,
-                score_priorite,
-                explication_score,
-                1 if eligible_relance else 0,
-                ai_categorie,
-                ai_confiance,
-                invoice_id,
-            ),
-        )
-
-        return {
-            "invoice_id": invoice_id,
-            "total_paye": total_paye,
-            "total_avoirs": total_avoirs,
-            "solde_restant": solde_restant,
-            "jours_retard": jours_retard,
-            "statut_calcule": statut_calcule,
-            "statut_paiement": statut_paiement,
-            "score_priorite": score_priorite,
-            "explication_score": explication_score,
-            "eligible_relance": eligible_relance,
-            "ai_categorie": ai_categorie,
-            "ai_confiance": ai_confiance,
-        }
+    if conn is not None:
+        return _recalculate_invoice_on_conn(conn, invoice_id, reference_date=reference_date)
+    with db_session(db_path) as session_conn:
+        return _recalculate_invoice_on_conn(session_conn, invoice_id, reference_date=reference_date)
 
 
 def recalculate_all_invoices(

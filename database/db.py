@@ -10,23 +10,50 @@ from typing import Iterator
 import config
 
 
-def get_connection(db_path: Path | None = None) -> sqlite3.Connection:
+def get_connection(db_path: Path | None = None, immediate: bool = False) -> sqlite3.Connection:
     target_path = db_path or config.DATABASE_PATH
     target_path.parent.mkdir(parents=True, exist_ok=True)
-    conn = sqlite3.connect(str(target_path))
+    conn = sqlite3.connect(
+        str(target_path),
+        timeout=30.0,
+        isolation_level=None if immediate else "DEFERRED",
+    )
     conn.row_factory = sqlite3.Row
     conn.execute("PRAGMA foreign_keys = ON;")
+    conn.execute("PRAGMA journal_mode = WAL;")
+    conn.execute("PRAGMA busy_timeout = 30000;")
     return conn
 
 
 @contextmanager
 def db_session(db_path: Path | None = None) -> Iterator[sqlite3.Connection]:
-    conn = get_connection(db_path)
+    conn = get_connection(db_path, immediate=False)
     try:
         yield conn
         conn.commit()
     except Exception:
         conn.rollback()
+        raise
+    finally:
+        conn.close()
+
+
+@contextmanager
+def db_atomic(db_path: Path | None = None) -> Iterator[sqlite3.Connection]:
+    """
+    Transaction SQLite atomique avec verrouillage d'ecriture immediat (BEGIN IMMEDIATE).
+    Empeche toute condition de course (TOCTOU) entre threads ou processus concurrents.
+    """
+    conn = get_connection(db_path, immediate=True)
+    try:
+        conn.execute("BEGIN IMMEDIATE;")
+        yield conn
+        conn.execute("COMMIT;")
+    except Exception:
+        try:
+            conn.execute("ROLLBACK;")
+        except sqlite3.Error:
+            pass
         raise
     finally:
         conn.close()
