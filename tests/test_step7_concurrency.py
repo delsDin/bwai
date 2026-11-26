@@ -11,6 +11,7 @@ import threading
 import pytest
 
 from database.db import db_session, init_db
+from services.ai_classifier import ClientMessageClassifier
 from services.importer import import_portfolio_dict
 from services.payment_service import record_simulated_payment
 from services.reminder_engine import prepare_reminder_for_invoice, verify_and_simulate_send
@@ -176,4 +177,22 @@ def test_concurrent_distinct_payments_accumulate_exact_balance(concurrent_db: Pa
     send_res = verify_and_simulate_send(reminder_id, db_path=concurrent_db)
     assert send_res["status"] == "CANCELLED_PRE_SEND"
     assert send_res["statut_action"] == "ANNULEE"
+
+
+def test_concurrent_ai_classifier_cold_start_20_threads():
+    """20 threads appellent classify() simultanement sur une instance non entrainee sans condition de course scikit-learn."""
+    fresh_clf = ClientMessageClassifier()
+    num_threads = 20
+    barrier = threading.Barrier(num_threads)
+
+    def worker():
+        barrier.wait()
+        return fresh_clf.classify("La marchandise livree est cassee je conteste cette facture")
+
+    with ThreadPoolExecutor(max_workers=num_threads) as pool:
+        results = list(pool.map(lambda _: worker(), range(num_threads)))
+
+    assert all(r["categorie"] == "LITIGE" for r in results)
+    assert fresh_clf.train_size == 250
+
 
