@@ -371,3 +371,13 @@ def list_audit_logs(limit: int = 150, db_path: Path | None = None) -> List[Dict[
     with db_session(db_path) as conn:
         rows = conn.execute("SELECT * FROM audit_logs ORDER BY event_id DESC LIMIT ?", (limit,)).fetchall()
         return [dict(r) for r in rows]
+
+
+def list_users(db_path: Path | None = None) -> List[Dict[str, Any]]:
+    """Retourne la liste des utilisateurs et administrateurs declares en base (sans exposer token_hash)."""
+    with db_session(db_path) as conn:
+        rows = conn.execute(
+            "SELECT user_id, username, display_name, role, statut FROM users ORDER BY user_id ASC"
+        ).fetchall()
+        return [dict(r) for r in rows]
+

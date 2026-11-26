@@ -16,6 +16,7 @@ from models.repositories import (
     list_import_errors,
     list_invoices,
     list_reminders,
+    list_users,
     reset_and_load_demo_portfolio,
     update_setting,
 )
@@ -27,7 +28,7 @@ from models.schemas import (
 )
 from services.ai_classifier import classifier_singleton
 from services.audit_logger import log_event, verify_audit_chain
-from services.calculator import recalculate_all_invoices
+from services.calculator import deterministic_replay, recalculate_all_invoices
 from services.importer import import_portfolio_file
 from services.payment_service import record_simulated_payment
 from services.recovery_service import resume_after_interruption
@@ -228,3 +229,14 @@ def api_get_audit_logs(limit: int = 150):
 @router.get("/audit-logs/verify")
 def api_verify_audit_logs():
     return verify_audit_chain()
+
+
+@router.get("/users")
+def api_list_users():
+    return {"users": list_users()}
+
+
+@router.post("/system/replay")
+def api_deterministic_replay():
+    return deterministic_replay()
+

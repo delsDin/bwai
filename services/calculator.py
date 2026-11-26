@@ -3,6 +3,8 @@ Modules C & D - Calcul deterministe des soldes, des jours de retard et qualifica
 Aucun modele generatif n'est utilise ici (Phase 3 & 4 du Guide).
 """
 from datetime import date
+import hashlib
+import json
 from pathlib import Path
 import sqlite3
 from typing import Tuple, Dict, Any
@@ -11,6 +13,19 @@ import config
 from database.db import db_session
 from services.prioritizer import compute_priority_score
 from services.ai_classifier import classifier_singleton
+
+
+def compute_overpayment(
+    montant_initial: float,
+    total_paye: float,
+    total_avoirs: float,
+) -> float:
+    """
+    Partie A.3 - Calcule le montant de surpaiement (trop-percu) si total_paye + total_avoirs > montant_initial.
+    Garantit l'identite comptable : solde_restant + total_paye + total_avoirs - montant_excedent == montant_initial.
+    """
+    excedent = float(total_paye) + float(total_avoirs) - float(montant_initial)
+    return round(max(0.0, excedent), 2)
 
 
 def compute_balance_and_delay(
@@ -131,6 +146,12 @@ def _recalculate_invoice_on_conn(
         date_echeance=date.fromisoformat(inv["date_echeance"]),
         reference_date=ref_date,
     )
+    montant_excedent = compute_overpayment(
+        montant_initial=float(inv["montant_initial"]),
+        total_paye=total_paye,
+        total_avoirs=total_avoirs,
+    )
+    surpaiement_detecte = montant_excedent > 0.0
 
     statut_calcule, statut_paiement = determine_invoice_status(
         solde_restant=solde_restant,
@@ -184,9 +205,12 @@ def _recalculate_invoice_on_conn(
 
     return {
         "invoice_id": invoice_id,
-        "total_paye": total_paye,
-        "total_avoirs": total_avoirs,
+        "montant_initial": round(float(inv["montant_initial"]), 2),
+        "total_paye": round(total_paye, 2),
+        "total_avoirs": round(total_avoirs, 2),
         "solde_restant": solde_restant,
+        "surpaiement_detecte": surpaiement_detecte,
+        "montant_excedent": montant_excedent,
         "jours_retard": jours_retard,
         "statut_calcule": statut_calcule,
         "statut_paiement": statut_paiement,
@@ -219,6 +243,70 @@ def recalculate_all_invoices(
     db_path: Path | None = None,
 ) -> list[Dict[str, Any]]:
     with db_session(db_path) as conn:
-        rows = conn.execute("SELECT invoice_id FROM invoices").fetchall()
+        rows = conn.execute("SELECT invoice_id FROM invoices ORDER BY invoice_id ASC").fetchall()
         invoice_ids = [r["invoice_id"] for r in rows]
     return [recalculate_invoice(inv_id, reference_date=reference_date, db_path=db_path) for inv_id in invoice_ids]
+
+
+def compute_portfolio_state_hash(db_path: Path | None = None) -> Dict[str, Any]:
+    """
+    Partie A.5 - Calcule une empreinte SHA-256 canonique de l'etat complet du portefeuille
+    (soldes, retards, statuts, scores de priorite, qualification IA).
+    Permet de prouver mathematiquement que deux rejeux deterministes donnent exactement le meme etat.
+    """
+    with db_session(db_path) as conn:
+        row_ref = conn.execute("SELECT value FROM settings WHERE key = 'reference_date'").fetchone()
+        ref_date = row_ref["value"] if row_ref else config.DEFAULT_REFERENCE_DATE.isoformat()
+        rows = conn.execute(
+            """
+            SELECT invoice_id, client_id, montant_initial, total_paye, total_avoirs,
+                   solde_restant, jours_retard, statut_calcule, statut_paiement,
+                   score_priorite, eligible_relance, ai_categorie, ai_confiance
+            FROM invoices
+            ORDER BY invoice_id ASC
+            """
+        ).fetchall()
+
+    canonical_list = [
+        {
+            "invoice_id": r["invoice_id"],
+            "client_id": r["client_id"],
+            "montant_initial": round(float(r["montant_initial"]), 2),
+            "total_paye": round(float(r["total_paye"]), 2),
+            "total_avoirs": round(float(r["total_avoirs"]), 2),
+            "solde_restant": round(float(r["solde_restant"]), 2),
+            "jours_retard": int(r["jours_retard"]),
+            "statut_calcule": r["statut_calcule"],
+            "statut_paiement": r["statut_paiement"],
+            "score_priorite": round(float(r["score_priorite"]), 3),
+            "eligible_relance": int(r["eligible_relance"]),
+            "ai_categorie": r["ai_categorie"],
+            "ai_confiance": round(float(r["ai_confiance"] or 0.0), 3),
+        }
+        for r in rows
+    ]
+    payload = json.dumps(
+        {"reference_date": ref_date, "invoices": canonical_list},
+        sort_keys=True,
+        ensure_ascii=False,
+    )
+    state_hash = hashlib.sha256(payload.encode("utf-8")).hexdigest()
+    return {
+        "reference_date": ref_date,
+        "invoice_count": len(canonical_list),
+        "state_hash": state_hash,
+        "invoices": canonical_list,
+    }
+
+
+def deterministic_replay(
+    reference_date: date | None = None,
+    db_path: Path | None = None,
+) -> Dict[str, Any]:
+    """
+    Partie A.5 - Rejoue l'integralite des calculs du portefeuille a la date de reference
+    et retourne l'empreinte SHA-256 deterministe de l'etat final.
+    """
+    recalculate_all_invoices(reference_date=reference_date, db_path=db_path)
+    return compute_portfolio_state_hash(db_path=db_path)
+

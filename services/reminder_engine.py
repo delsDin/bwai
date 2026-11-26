@@ -461,15 +461,25 @@ def verify_and_simulate_send(
             }
 
         # Garde-fou D : Limite maximale de relances deja simulees sur cette facture
-        sent_count_row = conn.execute(
-            "SELECT COUNT(*) AS cnt FROM reminders WHERE invoice_id = ? AND statut_action = 'SIMULEE'",
+        sent_rows = conn.execute(
+            "SELECT date_envoi_simule FROM reminders WHERE invoice_id = ? AND statut_action = 'SIMULEE' ORDER BY date_envoi_simule DESC",
             (invoice_id,),
-        ).fetchone()
-        if int(sent_count_row["cnt"]) >= config.MAX_REMINDERS_PER_INVOICE:
+        ).fetchall()
+        if len(sent_rows) >= config.MAX_REMINDERS_PER_INVOICE:
             reason = f"Plafond de {config.MAX_REMINDERS_PER_INVOICE} relances atteint pour la facture {invoice_id}"
             conn.execute(
                 "UPDATE reminders SET statut_action = 'ANNULEE', motif_blocage = ? WHERE reminder_id = ?",
                 (reason, reminder_id),
+            )
+            log_event(
+                acteur="SYSTEME",
+                action="BLOCAGE_PLAFOND_RELANCES",
+                objet_type="RELANCE",
+                objet_id=reminder_id,
+                ancienne_valeur=ancien_statut_rem,
+                nouvelle_valeur="ANNULEE",
+                motif=reason,
+                conn=conn,
             )
             return {
                 "status": "MAX_LIMIT_REACHED",
@@ -478,8 +488,47 @@ def verify_and_simulate_send(
                 "reason": reason,
             }
 
+        # Garde-fou E (Partie A.6) : Respect du delai minimal (MIN_DAYS_BETWEEN_REMINDERS = 7 jours) entre deux relances
+        row_ref = conn.execute("SELECT value FROM settings WHERE key = 'reference_date'").fetchone()
+        ref_date = date.fromisoformat(row_ref["value"]) if row_ref else config.DEFAULT_REFERENCE_DATE
+        if sent_rows and sent_rows[0]["date_envoi_simule"]:
+            last_sent_str = str(sent_rows[0]["date_envoi_simule"])[:10]
+            try:
+                last_sent_date = date.fromisoformat(last_sent_str)
+                days_since_last = (ref_date - last_sent_date).days
+                if 0 <= days_since_last < config.MIN_DAYS_BETWEEN_REMINDERS:
+                    reason = (
+                        f"Relance suspendue : delai minimal de {config.MIN_DAYS_BETWEEN_REMINDERS} jours "
+                        f"non ecoule depuis la derniere relance du {last_sent_str} ({days_since_last}j < {config.MIN_DAYS_BETWEEN_REMINDERS}j)"
+                    )
+                    conn.execute(
+                        "UPDATE reminders SET motif_blocage = ? WHERE reminder_id = ?",
+                        (reason, reminder_id),
+                    )
+                    log_event(
+                        acteur="SYSTEME",
+                        action="SUSPENSION_DELAI_MINIMAL_RELANCE",
+                        objet_type="RELANCE",
+                        objet_id=reminder_id,
+                        ancienne_valeur=ancien_statut_rem,
+                        nouvelle_valeur=ancien_statut_rem,
+                        motif=reason,
+                        conn=conn,
+                    )
+                    return {
+                        "status": "MIN_DELAY_NOT_ELAPSED",
+                        "reminder_id": reminder_id,
+                        "statut_action": ancien_statut_rem,
+                        "days_since_last": days_since_last,
+                        "min_days_required": config.MIN_DAYS_BETWEEN_REMINDERS,
+                        "reason": reason,
+                    }
+            except ValueError:
+                pass
+
         # Tous les controles ont reussi : transition atomique conditionnelle vers SIMULEE
-        now_iso = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S UTC")
+        now_utc = datetime.now(timezone.utc).strftime("%H:%M:%S UTC")
+        sent_stamp = f"{ref_date.isoformat()} {now_utc}"
         cur_send = conn.execute(
             """
             UPDATE reminders
@@ -488,7 +537,7 @@ def verify_and_simulate_send(
                 canal = ?
             WHERE reminder_id = ? AND statut_action = 'APPROUVEE'
             """,
-            (now_iso, canal_effectif, reminder_id),
+            (sent_stamp, canal_effectif, reminder_id),
         )
         if cur_send.rowcount == 0:
             return {

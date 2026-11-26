@@ -4,29 +4,31 @@ Module Securite & Maitrise des Actions :
 2. Separation des taches et principe des 4 yeux (auteur != validateur)
 3. Masquage des coordonnees personnelles (telephone, email) pour la minimisation des donnees
 """
+import hashlib
 from typing import Dict, Any, Optional, Tuple
 from fastapi import Header, HTTPException
 
+import config
 from database.db import db_session
 
-# Comptes de test documentes (sans secret reel) pour la demonstration et les tests automatises
+# Comptes de test charges depuis la configuration (.env) sans secret reel
 DEMO_TOKENS: Dict[str, Dict[str, str]] = {
-    "tok-gestionnaire-koffi": {
+    config.TOKEN_GESTIONNAIRE: {
         "username": "agent.koffi",
         "role": "GESTIONNAIRE",
         "display_name": "Koffi (Gestionnaire Recouvrement)",
     },
-    "tok-validateur-amina": {
+    config.TOKEN_VALIDATEUR_1: {
         "username": "val.amina",
         "role": "VALIDATEUR",
         "display_name": "Amina (Superviseure / Validatrice)",
     },
-    "tok-validateur-boris": {
+    config.TOKEN_VALIDATEUR_2: {
         "username": "val.boris",
         "role": "VALIDATEUR",
         "display_name": "Boris (Directeur / Second Validateur)",
     },
-    "tok-admin-direction": {
+    config.TOKEN_ADMIN: {
         "username": "admin.direction",
         "role": "ADMIN",
         "display_name": "Direction Generale (Administrateur)",
@@ -77,6 +79,19 @@ def resolve_actor_from_token(
         token = authorization.strip()[7:].strip()
 
     if token is not None:
+        token_hash = hashlib.sha256(token.encode("utf-8")).hexdigest()
+        with db_session() as conn:
+            row = conn.execute(
+                "SELECT user_id, username, display_name, role FROM users WHERE token_hash = ? AND statut = 'ACTIF'",
+                (token_hash,),
+            ).fetchone()
+            if row:
+                return {
+                    "user_id": str(row["user_id"]),
+                    "username": str(row["username"]),
+                    "role": str(row["role"]),
+                    "display_name": str(row["display_name"]),
+                }
         actor = DEMO_TOKENS.get(token)
         if not actor:
             raise HTTPException(

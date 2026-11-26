@@ -31,9 +31,13 @@ def record_simulated_payment(
     if montant <= 0:
         raise ValueError("Le montant du paiement simule doit etre strictement positif.")
 
-    pay_date = (date_paiement or config.DEFAULT_REFERENCE_DATE).isoformat()
-
     with db_atomic(db_path) as conn:
+        if date_paiement is not None:
+            pay_date = date_paiement.isoformat()
+        else:
+            row_ref = conn.execute("SELECT value FROM settings WHERE key = 'reference_date'").fetchone()
+            pay_date = str(row_ref["value"]) if row_ref else config.DEFAULT_REFERENCE_DATE.isoformat()
+
         inv = conn.execute("SELECT * FROM invoices WHERE invoice_id = ?", (invoice_id,)).fetchone()
         if not inv:
             raise ValueError(f"Facture introuvable : {invoice_id}")
@@ -80,6 +84,13 @@ def record_simulated_payment(
 
         # Recalcul deterministe de la facture dans la meme transaction
         updated = recalculate_invoice(invoice_id, conn=conn)
+        surpaiement_detecte = bool(updated.get("surpaiement_detecte", False))
+        montant_excedent = float(updated.get("montant_excedent", 0.0))
+        proposition_avoir = (
+            f"Surpaiement de {montant_excedent:,.0f} FCFA detecte : emettre un avoir client ou rembourser l'excedent."
+            if surpaiement_detecte
+            else None
+        )
 
         # Si la facture est maintenant soldee, on annule les relances non encore envoyees (Preparation Test T11)
         cancelled_reminders = 0
@@ -107,15 +118,31 @@ def record_simulated_payment(
             conn=conn,
         )
 
+        if surpaiement_detecte:
+            log_event(
+                acteur="SYSTEME",
+                action="ALERTE_SURPAIEMENT_DETECTE",
+                objet_type="FACTURE",
+                objet_id=invoice_id,
+                ancienne_valeur=f"Montant_initial={inv['montant_initial']}",
+                nouvelle_valeur=f"Excedent={montant_excedent}",
+                motif=proposition_avoir,
+                conn=conn,
+            )
+
         return {
             "status": "RECORDED",
             "duplicate": False,
             "payment_id": payment_id,
             "invoice_id": invoice_id,
+            "date_paiement": pay_date,
             "montant": montant,
             "reference_fictive": reference_fictive,
             "solde_restant": updated["solde_restant"],
             "statut_calcule": updated["statut_calcule"],
+            "surpaiement_detecte": surpaiement_detecte,
+            "montant_excedent": montant_excedent,
+            "proposition_avoir": proposition_avoir,
             "cancelled_reminders": cancelled_reminders,
             "message": "Paiement simule enregistre avec succes.",
         }

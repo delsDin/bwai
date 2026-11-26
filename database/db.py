@@ -2,6 +2,7 @@
 Gestionnaire de connexion SQLite locale et d'initialisation du schéma.
 Fonctionne 100 % hors connexion (Module K).
 """
+import hashlib
 import sqlite3
 from contextlib import contextmanager
 from pathlib import Path
@@ -76,5 +77,46 @@ def init_db(db_path: Path | None = None) -> None:
         conn.executemany(
             "INSERT OR IGNORE INTO settings (key, value, description) VALUES (?, ?, ?)",
             default_settings,
+        )
+        default_users = [
+            (
+                "USR-01",
+                "agent.koffi",
+                "Koffi (Gestionnaire Recouvrement)",
+                "GESTIONNAIRE",
+                hashlib.sha256(config.TOKEN_GESTIONNAIRE.encode("utf-8")).hexdigest(),
+                "ACTIF",
+            ),
+            (
+                "USR-02",
+                "val.amina",
+                "Amina (Superviseure / Validatrice)",
+                "VALIDATEUR",
+                hashlib.sha256(config.TOKEN_VALIDATEUR_1.encode("utf-8")).hexdigest(),
+                "ACTIF",
+            ),
+            (
+                "USR-03",
+                "val.boris",
+                "Boris (Directeur / Second Validateur)",
+                "VALIDATEUR",
+                hashlib.sha256(config.TOKEN_VALIDATEUR_2.encode("utf-8")).hexdigest(),
+                "ACTIF",
+            ),
+            (
+                "USR-04",
+                "admin.direction",
+                "Direction Generale (Administrateur)",
+                "ADMIN",
+                hashlib.sha256(config.TOKEN_ADMIN.encode("utf-8")).hexdigest(),
+                "ACTIF",
+            ),
+        ]
+        conn.executemany(
+            """
+            INSERT OR IGNORE INTO users (user_id, username, display_name, role, token_hash, statut)
+            VALUES (?, ?, ?, ?, ?, ?)
+            """,
+            default_users,
         )
 

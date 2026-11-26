@@ -9,6 +9,15 @@ CREATE TABLE IF NOT EXISTS settings (
     description TEXT
 );
 
+CREATE TABLE IF NOT EXISTS users (
+    user_id TEXT PRIMARY KEY,
+    username TEXT NOT NULL UNIQUE,
+    display_name TEXT NOT NULL,
+    role TEXT NOT NULL CHECK (role IN ('GESTIONNAIRE', 'VALIDATEUR', 'ADMIN')),
+    token_hash TEXT NOT NULL UNIQUE,
+    statut TEXT NOT NULL DEFAULT 'ACTIF' CHECK (statut IN ('ACTIF', 'INACTIF'))
+);
+
 CREATE TABLE IF NOT EXISTS clients (
     client_id TEXT PRIMARY KEY,
     nom_affiche TEXT NOT NULL,
