@@ -2,10 +2,17 @@
 Couche d'acces aux donnees SQLite (Repositories) et jeu de donnees fictif de demonstration.
 Toutes les requetes sont parametrees pour garantir la securite et l'integrite.
 """
+from datetime import date
+import json
 from pathlib import Path
 from typing import Any, Dict, List
+import uuid
 
-from database.db import db_session, init_db
+import config
+from database.db import db_atomic, db_session, init_db
+from services.audit_logger import compute_audit_hash, log_event
+from services.ai_classifier import classifier_singleton
+from services.calculator import recalculate_all_invoices, recalculate_invoice
 from services.importer import import_portfolio_dict
 from services.reminder_engine import prepare_all_reminders
 from services.security import mask_contact
@@ -169,28 +176,172 @@ DEMO_PORTFOLIO_DATA: Dict[str, List[Dict[str, Any]]] = {
 }
 
 
-def reset_and_load_demo_portfolio(db_path: Path | None = None) -> Dict[str, Any]:
-    """Reinitialise toutes les tables SQLite et charge le portefeuille fictif de demonstration."""
+PORTFOLIO_TABLES = (
+    "reminders",
+    "disputes",
+    "installment_plans",
+    "credit_notes",
+    "payments",
+    "invoices",
+    "clients",
+    "import_errors",
+    "audit_logs",
+)
+
+
+def _get_cache_path(db_path: Path | None = None) -> Path:
+    target_db = db_path or config.DATABASE_PATH
+    return target_db.parent / "app_state_cache.json"
+
+
+def save_app_state_cache(db_path: Path | None = None) -> Dict[str, Any]:
+    """
+    Sauvegarde dans un fichier de cache JSON (et retourne) l'etat complet de l'application
+    apres une importation ou une action utilisateur. Permet de recharger automatiquement
+    les donnees si l'utilisateur quitte l'application sans avoir efface les donnees.
+    """
+    init_db(db_path)
+    snapshot: Dict[str, Any] = {"has_active_data": False, "tables": {}}
+    with db_session(db_path) as conn:
+        for table in (
+            "clients",
+            "invoices",
+            "payments",
+            "credit_notes",
+            "installment_plans",
+            "disputes",
+            "reminders",
+            "import_errors",
+            "audit_logs",
+            "settings",
+        ):
+            rows = conn.execute(f"SELECT * FROM {table}").fetchall()
+            snapshot["tables"][table] = [dict(r) for r in rows]
+
+    has_data = (
+        len(snapshot["tables"].get("invoices", [])) > 0
+        or len(snapshot["tables"].get("clients", [])) > 0
+        or len(snapshot["tables"].get("import_errors", [])) > 0
+    )
+    snapshot["has_active_data"] = has_data
+
+    cache_file = _get_cache_path(db_path)
+    if has_data:
+        cache_file.parent.mkdir(parents=True, exist_ok=True)
+        cache_file.write_text(json.dumps(snapshot, ensure_ascii=False, indent=2), encoding="utf-8")
+    elif cache_file.exists():
+        cache_file.unlink()
+
+    return snapshot
+
+
+def restore_from_app_state_cache(
+    snapshot: Dict[str, Any] | None = None,
+    db_path: Path | None = None,
+) -> bool:
+    """
+    Restaure l'etat de l'application depuis le cache (fichier local ou payload JSON du navigateur)
+    si la base est vide et que l'utilisateur n'avait pas efface ses donnees.
+    """
+    init_db(db_path)
+    data = snapshot
+    if data is None:
+        cache_file = _get_cache_path(db_path)
+        if not cache_file.exists():
+            return False
+        try:
+            data = json.loads(cache_file.read_text(encoding="utf-8"))
+        except Exception:
+            return False
+
+    if not data or not data.get("has_active_data"):
+        return False
+
+    tables = data.get("tables", {})
+    # Verification cryptographique obligatoire de la chaine SHA-256 des audit_logs avant toute restauration
+    audit_rows = sorted(tables.get("audit_logs", []), key=lambda r: int(r.get("event_id", 0)))
+    expected_prev = "GENESIS"
+    for row in audit_rows:
+        actual_prev = str(row.get("prev_hash", ""))
+        expected_entry = compute_audit_hash(
+            prev_hash=expected_prev,
+            timestamp=str(row.get("timestamp", "")),
+            acteur=str(row.get("acteur", "")),
+            action=str(row.get("action", "")),
+            objet_type=str(row.get("objet_type", "")),
+            objet_id=str(row.get("objet_id", "")),
+            ancienne_valeur=row.get("ancienne_valeur"),
+            nouvelle_valeur=row.get("nouvelle_valeur"),
+            motif=row.get("motif"),
+        )
+        if actual_prev != expected_prev or str(row.get("entry_hash", "")) != expected_entry:
+            raise ValueError(
+                f"Restauration refusee : chaine d'audit SHA-256 invalide ou falsifiee a l'evenement {row.get('event_id')}."
+            )
+        expected_prev = expected_entry
+
+    with db_session(db_path) as conn:
+        conn.execute("UPDATE settings SET value = '1' WHERE key = 'allow_audit_reset'")
+        for table in PORTFOLIO_TABLES:
+            conn.execute(f"DELETE FROM {table}")
+
+        for table in (
+            "clients",
+            "invoices",
+            "payments",
+            "credit_notes",
+            "installment_plans",
+            "disputes",
+            "reminders",
+            "import_errors",
+            "audit_logs",
+        ):
+            rows = tables.get(table, [])
+            for row in rows:
+                cols = list(row.keys())
+                placeholders = ", ".join("?" for _ in cols)
+                col_names = ", ".join(cols)
+                conn.execute(
+                    f"INSERT OR REPLACE INTO {table} ({col_names}) VALUES ({placeholders})",
+                    tuple(row[c] for c in cols),
+                )
+        conn.execute("UPDATE settings SET value = '0' WHERE key = 'allow_audit_reset'")
+
+    save_app_state_cache(db_path=db_path)
+    return True
+
+
+def clear_all_portfolio_data(db_path: Path | None = None) -> Dict[str, Any]:
+    """
+    Vide toutes les donnees (factures, clients, paiements, relances, erreurs, journal)
+    et supprime le cache pour reprendre a zero.
+    """
     init_db(db_path)
     with db_session(db_path) as conn:
         conn.execute("UPDATE settings SET value = '1' WHERE key = 'allow_audit_reset'")
         conn.execute("UPDATE settings SET value = '0' WHERE key = 'emergency_stop'")
-        for table in (
-            "reminders",
-            "disputes",
-            "installment_plans",
-            "credit_notes",
-            "payments",
-            "invoices",
-            "clients",
-            "import_errors",
-            "audit_logs",
-        ):
+        for table in PORTFOLIO_TABLES:
             conn.execute(f"DELETE FROM {table}")
         conn.execute("UPDATE settings SET value = '0' WHERE key = 'allow_audit_reset'")
 
+    cache_file = _get_cache_path(db_path)
+    if cache_file.exists():
+        cache_file.unlink()
+
+    return {
+        "status": "CLEARED",
+        "total_factures": 0,
+        "cache_cleared": True,
+        "message": "Toutes les donnees et le cache ont ete effaces. Importez un fichier pour commencer.",
+    }
+
+
+def reset_and_load_demo_portfolio(db_path: Path | None = None) -> Dict[str, Any]:
+    """Reinitialise toutes les tables SQLite, charge le portefeuille fictif de demonstration et met a jour le cache."""
+    clear_all_portfolio_data(db_path)
     import_res = import_portfolio_dict(DEMO_PORTFOLIO_DATA, db_path=db_path)
     reminders_res = prepare_all_reminders(db_path=db_path)
+    save_app_state_cache(db_path=db_path)
     return {
         "import_summary": import_res,
         "reminders_prepared": len([r for r in reminders_res if r.get("status") == "CREATED"]),
@@ -251,6 +402,8 @@ def get_dashboard_kpis(db_path: Path | None = None) -> Dict[str, Any]:
         return {
             "reference_date": settings.get("reference_date"),
             "high_amount_threshold": float(settings.get("high_amount_threshold", 500000)),
+            "ai_confidence_threshold": float(settings.get("ai_confidence_threshold", 0.75)),
+            "emergency_stop": settings.get("emergency_stop", "0") == "1",
             "total_factures": int(inv_stats["total_factures"] or 0),
             "total_facture": float(inv_stats["total_facture"] or 0.0),
             "encours_total": float(inv_stats["encours_total"] or 0.0),
@@ -332,6 +485,7 @@ def get_invoice_detail(invoice_id: str, db_path: Path | None = None) -> Dict[str
 
         inv_dict = dict(inv)
         inv_dict["contact_masque"] = mask_contact(inv_dict.get("contact_simule"))
+        inv_dict["ai_details"] = classifier_singleton.classify(inv_dict.get("dernier_message_client"))
 
         return {
             "invoice": inv_dict,
@@ -380,4 +534,411 @@ def list_users(db_path: Path | None = None) -> List[Dict[str, Any]]:
             "SELECT user_id, username, display_name, role, statut FROM users ORDER BY user_id ASC"
         ).fetchall()
         return [dict(r) for r in rows]
+
+
+def update_business_settings(
+    reference_date: str,
+    high_amount_threshold: float,
+    ai_confidence_threshold: float,
+    default_channel: str,
+    acteur: str = "ADMIN",
+    db_path: Path | None = None,
+) -> Dict[str, Any]:
+    """Met a jour les parametres metier configurables, recalcule le portefeuille et trace la modification."""
+    old_settings = get_settings(db_path)
+    old_summary = (
+        f"ref={old_settings.get('reference_date')}, seuil={old_settings.get('high_amount_threshold')}, "
+        f"ia={old_settings.get('ai_confidence_threshold')}, canal={old_settings.get('default_channel')}"
+    )
+    new_summary = (
+        f"ref={reference_date}, seuil={high_amount_threshold}, "
+        f"ia={ai_confidence_threshold}, canal={default_channel}"
+    )
+    with db_atomic(db_path) as conn:
+        for k, v in (
+            ("reference_date", reference_date),
+            ("high_amount_threshold", str(high_amount_threshold)),
+            ("ai_confidence_threshold", str(ai_confidence_threshold)),
+            ("default_channel", default_channel),
+        ):
+            conn.execute("UPDATE settings SET value = ? WHERE key = ?", (v, k))
+        log_event(
+            acteur=acteur,
+            action="MODIFICATION_PARAMETRES_METIER",
+            objet_type="SYSTEME",
+            objet_id="SETTINGS",
+            ancienne_valeur=old_summary,
+            nouvelle_valeur=new_summary,
+            motif="Mise a jour des seuils et parametres de recouvrement",
+            conn=conn,
+        )
+
+    recalculated = recalculate_all_invoices(db_path=db_path)
+    save_app_state_cache(db_path=db_path)
+    return {
+        "status": "UPDATED",
+        "settings": get_settings(db_path),
+        "recalculated_count": len(recalculated),
+    }
+
+
+def create_dispute(
+    invoice_id: str,
+    motif: str,
+    date_ouverture: date | None = None,
+    acteur: str = "GESTIONNAIRE",
+    db_path: Path | None = None,
+) -> Dict[str, Any]:
+    """Ouvre une contestation sur une facture, passe son statut a CONTESTEE et suspend ses relances en attente."""
+    with db_atomic(db_path) as conn:
+        inv = conn.execute("SELECT * FROM invoices WHERE invoice_id = ?", (invoice_id,)).fetchone()
+        if not inv:
+            raise ValueError(f"Facture introuvable : {invoice_id}")
+        old_statut = str(inv["statut_calcule"])
+        row_ref = conn.execute("SELECT value FROM settings WHERE key = 'reference_date'").fetchone()
+        open_date = (
+            date_ouverture.isoformat()
+            if date_ouverture
+            else (str(row_ref["value"]) if row_ref else config.DEFAULT_REFERENCE_DATE.isoformat())
+        )
+        dispute_id = f"LIT-{uuid.uuid4().hex[:6].upper()}"
+        conn.execute(
+            """
+            INSERT INTO disputes (dispute_id, invoice_id, motif, date_ouverture, statut, detecte_par)
+            VALUES (?, ?, ?, ?, 'OUVERT', 'HUMAIN')
+            """,
+            (dispute_id, invoice_id, motif, open_date),
+        )
+        updated = recalculate_invoice(invoice_id, conn=conn)
+        cur = conn.execute(
+            """
+            UPDATE reminders
+            SET statut_action = 'EN_ATTENTE_VALIDATION',
+                requiert_revue_humaine = 1,
+                motif_blocage = 'Litige ouvert : ' || ?
+            WHERE invoice_id = ?
+              AND statut_action IN ('BROUILLON', 'APPROUVEE')
+            """,
+            (motif, invoice_id),
+        )
+        suspended_count = int(cur.rowcount)
+        log_event(
+            acteur=acteur,
+            action="OUVERTURE_LITIGE",
+            objet_type="FACTURE",
+            objet_id=invoice_id,
+            ancienne_valeur=f"Statut={old_statut}",
+            nouvelle_valeur=f"Statut={updated['statut_calcule']} ({dispute_id})",
+            motif=f"{motif} (relances suspendues: {suspended_count})",
+            conn=conn,
+        )
+    save_app_state_cache(db_path=db_path)
+    return {
+        "status": "DISPUTE_OPENED",
+        "dispute_id": dispute_id,
+        "invoice_id": invoice_id,
+        "statut_calcule": updated["statut_calcule"],
+        "suspended_reminders": suspended_count,
+    }
+
+
+def resolve_dispute(
+    dispute_id: str,
+    motif_resolution: str,
+    acteur: str = "VALIDATEUR",
+    db_path: Path | None = None,
+) -> Dict[str, Any]:
+    """Cloture un litige ouvert et recalcule immediatement le statut et la priorite de la facture."""
+    with db_atomic(db_path) as conn:
+        disp = conn.execute("SELECT * FROM disputes WHERE dispute_id = ?", (dispute_id,)).fetchone()
+        if not disp:
+            raise ValueError(f"Litige introuvable : {dispute_id}")
+        invoice_id = str(disp["invoice_id"])
+        conn.execute("UPDATE disputes SET statut = 'RESOLU' WHERE dispute_id = ?", (dispute_id,))
+        updated = recalculate_invoice(invoice_id, conn=conn)
+        log_event(
+            acteur=acteur,
+            action="RESOLUTION_LITIGE",
+            objet_type="FACTURE",
+            objet_id=invoice_id,
+            ancienne_valeur="CONTESTEE (OUVERT)",
+            nouvelle_valeur=f"Statut={updated['statut_calcule']} (LITIGE RESOLU)",
+            motif=motif_resolution,
+            conn=conn,
+        )
+    save_app_state_cache(db_path=db_path)
+    return {
+        "status": "DISPUTE_RESOLVED",
+        "dispute_id": dispute_id,
+        "invoice_id": invoice_id,
+        "statut_calcule": updated["statut_calcule"],
+        "score_priorite": updated["score_priorite"],
+    }
+
+
+def create_credit_note(
+    invoice_id: str,
+    montant: float,
+    motif: str,
+    date_avoir: date | None = None,
+    acteur: str = "VALIDATEUR",
+    db_path: Path | None = None,
+) -> Dict[str, Any]:
+    """Emet un avoir commercial sur une facture, recalcule le solde et annule les relances si soldee."""
+    with db_atomic(db_path) as conn:
+        inv = conn.execute("SELECT * FROM invoices WHERE invoice_id = ?", (invoice_id,)).fetchone()
+        if not inv:
+            raise ValueError(f"Facture introuvable : {invoice_id}")
+        old_solde = float(inv["solde_restant"])
+        row_ref = conn.execute("SELECT value FROM settings WHERE key = 'reference_date'").fetchone()
+        cn_date = (
+            date_avoir.isoformat()
+            if date_avoir
+            else (str(row_ref["value"]) if row_ref else config.DEFAULT_REFERENCE_DATE.isoformat())
+        )
+        credit_note_id = f"AV-{uuid.uuid4().hex[:6].upper()}"
+        conn.execute(
+            """
+            INSERT INTO credit_notes (credit_note_id, invoice_id, date_avoir, montant, motif)
+            VALUES (?, ?, ?, ?, ?)
+            """,
+            (credit_note_id, invoice_id, cn_date, montant, motif),
+        )
+        updated = recalculate_invoice(invoice_id, conn=conn)
+        cancelled = 0
+        if updated["solde_restant"] <= 0.0:
+            cur = conn.execute(
+                """
+                UPDATE reminders
+                SET statut_action = 'ANNULEE',
+                    motif_blocage = 'Facture soldee par avoir ' || ?
+                WHERE invoice_id = ?
+                  AND statut_action IN ('BROUILLON', 'EN_ATTENTE_VALIDATION', 'APPROUVEE')
+                """,
+                (credit_note_id, invoice_id),
+            )
+            cancelled = int(cur.rowcount)
+        log_event(
+            acteur=acteur,
+            action="EMISSION_AVOIR",
+            objet_type="FACTURE",
+            objet_id=invoice_id,
+            ancienne_valeur=f"Solde={old_solde}",
+            nouvelle_valeur=f"Solde={updated['solde_restant']}, Statut={updated['statut_calcule']}",
+            motif=f"Avoir {credit_note_id} de {montant:,.0f} FCFA : {motif}",
+            conn=conn,
+        )
+    save_app_state_cache(db_path=db_path)
+    return {
+        "status": "CREDIT_NOTE_CREATED",
+        "credit_note_id": credit_note_id,
+        "invoice_id": invoice_id,
+        "solde_restant": updated["solde_restant"],
+        "statut_calcule": updated["statut_calcule"],
+        "cancelled_reminders": cancelled,
+    }
+
+
+def create_installment_plan(
+    invoice_id: str,
+    date_prochaine_echeance: date,
+    montant_prevu: float,
+    acteur: str = "VALIDATEUR",
+    db_path: Path | None = None,
+) -> Dict[str, Any]:
+    """Met en place un echeancier actif sur une facture, passe son statut a COUVERTE_PAR_ECHEANCIER et suspend les relances."""
+    with db_atomic(db_path) as conn:
+        inv = conn.execute("SELECT * FROM invoices WHERE invoice_id = ?", (invoice_id,)).fetchone()
+        if not inv:
+            raise ValueError(f"Facture introuvable : {invoice_id}")
+        old_statut = str(inv["statut_calcule"])
+        plan_id = f"PLAN-{uuid.uuid4().hex[:6].upper()}"
+        conn.execute(
+            """
+            INSERT INTO installment_plans (plan_id, invoice_id, date_prochaine_echeance, montant_prevu, statut)
+            VALUES (?, ?, ?, ?, 'ACTIF')
+            """,
+            (plan_id, invoice_id, date_prochaine_echeance.isoformat(), montant_prevu),
+        )
+        updated = recalculate_invoice(invoice_id, conn=conn)
+        cur = conn.execute(
+            """
+            UPDATE reminders
+            SET statut_action = 'ANNULEE',
+                motif_blocage = 'Couverte par echeancier actif ' || ?
+            WHERE invoice_id = ?
+              AND statut_action IN ('BROUILLON', 'EN_ATTENTE_VALIDATION', 'APPROUVEE')
+            """,
+            (plan_id, invoice_id),
+        )
+        cancelled = int(cur.rowcount)
+        log_event(
+            acteur=acteur,
+            action="ACTIVATION_ECHEANCIER",
+            objet_type="FACTURE",
+            objet_id=invoice_id,
+            ancienne_valeur=f"Statut={old_statut}",
+            nouvelle_valeur=f"Statut={updated['statut_calcule']} (Prochaine echeance: {date_prochaine_echeance.isoformat()})",
+            motif=f"Echeancier {plan_id} de {montant_prevu:,.0f} FCFA",
+            conn=conn,
+        )
+    save_app_state_cache(db_path=db_path)
+    return {
+        "status": "INSTALLMENT_PLAN_CREATED",
+        "plan_id": plan_id,
+        "invoice_id": invoice_id,
+        "statut_calcule": updated["statut_calcule"],
+        "cancelled_reminders": cancelled,
+    }
+
+
+def dismiss_import_error(
+    error_id: int,
+    motif: str = "Ligne exclue manuellement apres controle",
+    acteur: str = "GESTIONNAIRE",
+    db_path: Path | None = None,
+) -> Dict[str, Any]:
+    """Exclut / acquitte une ligne d'import invalide du journal des rejets et trace la decision."""
+    with db_atomic(db_path) as conn:
+        err = conn.execute("SELECT * FROM import_errors WHERE error_id = ?", (error_id,)).fetchone()
+        if not err:
+            raise ValueError(f"Erreur d'import introuvable : {error_id}")
+        conn.execute("DELETE FROM import_errors WHERE error_id = ?", (error_id,))
+        log_event(
+            acteur=acteur,
+            action="EXCLUSION_ERREUR_IMPORT",
+            objet_type="IMPORT_ERROR",
+            objet_id=f"{err['batch_id']}-L{err['ligne_numero']}",
+            ancienne_valeur=str(err["motif_rejet"]),
+            nouvelle_valeur="EXCLUE",
+            motif=motif,
+            conn=conn,
+        )
+    save_app_state_cache(db_path=db_path)
+    return {"status": "DISMISSED", "error_id": error_id}
+
+
+def resolve_import_error(
+    error_id: int,
+    donnees_corrigees: Dict[str, Any],
+    motif: str = "Correction manuelle et reintegration",
+    acteur: str = "GESTIONNAIRE",
+    db_path: Path | None = None,
+) -> Dict[str, Any]:
+    """Corrige et reintegre une ligne d'import rejetee (Guide Section 3, Etape 2 : corriger ou exclure)."""
+    with db_session(db_path) as conn:
+        err = conn.execute("SELECT * FROM import_errors WHERE error_id = ?", (error_id,)).fetchone()
+        if not err:
+            raise ValueError(f"Erreur d'import introuvable : {error_id}")
+        entite = str(err["entite"])
+        batch_id = str(err["batch_id"])
+        ligne_num = int(err["ligne_numero"])
+
+    entity_key_map = {
+        "Client": "clients",
+        "Facture": "invoices",
+        "Paiement": "payments",
+        "Avoir": "credit_notes",
+        "Echeancier": "installment_plans",
+        "Contestation": "disputes",
+    }
+    target_key = entity_key_map.get(entite, "invoices")
+    report = import_portfolio_dict({target_key: [donnees_corrigees]}, db_path=db_path, acteur=acteur)
+    if report["total_accepted"] == 0:
+        # Supprime la nouvelle ligne d'erreur redondante creee par la tentative echouee
+        with db_session(db_path) as conn:
+            conn.execute("DELETE FROM import_errors WHERE batch_id = ?", (report["batch_id"],))
+        err_detail = report["errors"][0]["motif_rejet"] if report["errors"] else "Donnees toujours invalides"
+        raise ValueError(f"La correction soumise est invalide : {err_detail}")
+
+    with db_atomic(db_path) as conn:
+        conn.execute("DELETE FROM import_errors WHERE error_id = ?", (error_id,))
+        log_event(
+            acteur=acteur,
+            action="CORRECTION_ERREUR_IMPORT",
+            objet_type="IMPORT_ERROR",
+            objet_id=f"{batch_id}-L{ligne_num}",
+            ancienne_valeur=str(err["motif_rejet"]),
+            nouvelle_valeur=f"CORRIGEE_ET_IMPORTEE ({entite})",
+            motif=motif,
+            conn=conn,
+        )
+    save_app_state_cache(db_path=db_path)
+    return {
+        "status": "RESOLVED_AND_IMPORTED",
+        "error_id": error_id,
+        "entite": entite,
+        "import_report": report,
+    }
+
+
+def override_invoice_ai_classification(
+    invoice_id: str,
+    categorie_humaine: str,
+    motif: str,
+    acteur: str = "VALIDATEUR",
+    db_path: Path | None = None,
+) -> Dict[str, Any]:
+    """
+    Reprise humaine sur la qualification IA d'un message client (Critere 3 : Qualite de l'automatisation).
+    Permet a un operateur de confirmer ou corriger la categorie predite par l'IA, met a jour la file de revue
+    et trace la decision dans le journal SHA-256.
+    """
+    cat_upper = categorie_humaine.strip().upper()
+    if cat_upper not in ("LITIGE", "DEMANDE_ECHEANCIER", "ANNONCE_PAIEMENT", "RETARD_SIMPLE"):
+        raise ValueError(f"Categorie humaine invalide : {categorie_humaine}")
+
+    with db_atomic(db_path) as conn:
+        inv = conn.execute("SELECT * FROM invoices WHERE invoice_id = ?", (invoice_id,)).fetchone()
+        if not inv:
+            raise ValueError(f"Facture introuvable : {invoice_id}")
+        old_cat = str(inv["ai_categorie"] or "AUCUN_MESSAGE")
+        old_conf = float(inv["ai_confiance"] or 0.0)
+
+        conn.execute(
+            """
+            UPDATE invoices
+            SET ai_categorie = ?,
+                ai_confiance = 1.0
+            WHERE invoice_id = ?
+            """,
+            (cat_upper, invoice_id),
+        )
+
+        if cat_upper in ("LITIGE", "DEMANDE_ECHEANCIER", "ANNONCE_PAIEMENT"):
+            conn.execute(
+                """
+                UPDATE reminders
+                SET statut_action = 'EN_ATTENTE_VALIDATION',
+                    requiert_revue_humaine = 1,
+                    motif_blocage = ?
+                WHERE invoice_id = ?
+                  AND statut_action IN ('BROUILLON', 'APPROUVEE')
+                """,
+                (f"Reprise humaine IA [{cat_upper}] : {motif}", invoice_id),
+            )
+
+        log_event(
+            acteur=acteur,
+            action="REPRISE_HUMAINE_QUALIFICATION_IA",
+            objet_type="FACTURE",
+            objet_id=invoice_id,
+            ancienne_valeur=f"IA={old_cat} ({old_conf:.0%})",
+            nouvelle_valeur=f"HUMAIN={cat_upper} (100%)",
+            motif=motif,
+            conn=conn,
+        )
+
+    save_app_state_cache(db_path=db_path)
+    return {
+        "status": "AI_OVERRIDDEN_BY_HUMAN",
+        "invoice_id": invoice_id,
+        "ancienne_categorie_ia": old_cat,
+        "ancienne_confiance_ia": old_conf,
+        "nouvelle_categorie_humaine": cat_upper,
+        "acteur": acteur,
+        "motif": motif,
+    }
+
+
 

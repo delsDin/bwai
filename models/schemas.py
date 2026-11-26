@@ -3,7 +3,7 @@ Modeles Pydantic v2 - Validation stricte des donnees d'import et des payloads AP
 """
 from datetime import date
 from enum import Enum
-from typing import Optional
+from typing import Any, Dict, Optional
 from pydantic import BaseModel, Field, model_validator
 
 
@@ -67,6 +67,13 @@ class InvoiceImportSchema(BaseModel):
     def check_dates(self) -> "InvoiceImportSchema":
         if self.date_echeance < self.date_emission:
             raise ValueError("La date d'echeance ne peut pas etre anterieure a la date d'emission.")
+        norm_dev = self.devise.strip().upper()
+        if norm_dev in ("FCFA", "XOF", "CFA"):
+            self.devise = "FCFA"
+        else:
+            raise ValueError(
+                f"Devise non supportee ({self.devise}) : toutes les factures du portefeuille doivent etre en FCFA (XOF)."
+            )
         return self
 
 
@@ -122,4 +129,50 @@ class AIClassificationRequest(BaseModel):
 class EmergencyStopRequest(BaseModel):
     active: bool = Field(..., description="True pour activer le mode d'arret d'urgence, False pour le desactiver")
     motif: str = Field("Decision de securite", min_length=3)
+
+
+class SettingsUpdateRequest(BaseModel):
+    reference_date: date
+    high_amount_threshold: float = Field(..., gt=0, description="Seuil de gros montant en FCFA")
+    ai_confidence_threshold: float = Field(..., ge=0.1, le=1.0, description="Seuil de confiance IA entre 0.10 et 1.00")
+    default_channel: ChannelEnum = ChannelEnum.WHATSAPP
+
+
+class DisputeCreateRequest(BaseModel):
+    invoice_id: str = Field(..., min_length=1)
+    motif: str = Field(..., min_length=3)
+    date_ouverture: Optional[date] = None
+
+
+class DisputeResolveRequest(BaseModel):
+    motif_resolution: str = Field("Litige verifie et resolu apres echange client", min_length=3)
+
+
+class CreditNoteCreateRequest(BaseModel):
+    invoice_id: str = Field(..., min_length=1)
+    montant: float = Field(..., gt=0)
+    motif: str = Field(..., min_length=3)
+    date_avoir: Optional[date] = None
+
+
+class InstallmentPlanCreateRequest(BaseModel):
+    invoice_id: str = Field(..., min_length=1)
+    date_prochaine_echeance: date
+    montant_prevu: float = Field(..., gt=0)
+
+
+class ImportErrorResolveRequest(BaseModel):
+    donnees_corrigees: Dict[str, Any]
+    motif: str = Field("Correction manuelle et reintegration de la ligne", min_length=3)
+
+
+class AIOverrideRequest(BaseModel):
+    categorie_humaine: str = Field(
+        ...,
+        pattern="^(LITIGE|DEMANDE_ECHEANCIER|ANNONCE_PAIEMENT|RETARD_SIMPLE)$",
+        description="Qualification retenue par l'operateur humain apres reprise sur l'IA",
+    )
+    motif: str = Field("Reprise humaine et requalification du message client", min_length=3)
+
+
 

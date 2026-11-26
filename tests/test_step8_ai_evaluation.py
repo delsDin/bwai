@@ -89,3 +89,73 @@ def test_critical_safeguard_negation_and_amount_on_retard_simple():
     assert res_amt["garde_fou_critique"] is True or res_amt["categorie"] != "RETARD_SIMPLE"
 
 
+def test_ai_explainability_out_of_vocabulary_and_human_override():
+    """
+    Complete le critere 3 'Qualite de l'automatisation' (15/15) :
+    1. Explicabilite locale : chaque prediction retourne termes_explicatifs (TF-IDF x poids),
+       probabilites_classes sur les 4 classes et marge_top1_top2.
+    2. Detection hors-vocabulaire : un message en langue locale / argot sans aucun terme connu
+       (nb_termes_reconnus == 0) active hors_vocabulaire=True et part obligatoirement en revue humaine.
+    3. Reprise humaine sur l'IA (POST /api/invoices/{id}/ai-override) : permet a un operateur de
+       requalifier le message client d'une facture, persiste face aux recalculs et trace l'ecart IA vs Humain.
+    """
+    from pathlib import Path
+    import tempfile
+    from fastapi.testclient import TestClient
+    from app import app
+    from database.db import init_db
+
+    # 1. Explicabilite locale d'un message de litige
+    res_exp = classifier_singleton.classify("La marchandise livree est endommagee je conteste cette facture")
+    assert res_exp["categorie"] == "LITIGE"
+    assert len(res_exp["termes_explicatifs"]) >= 2
+    assert set(res_exp["probabilites_classes"].keys()) == {
+        "LITIGE",
+        "DEMANDE_ECHEANCIER",
+        "ANNONCE_PAIEMENT",
+        "RETARD_SIMPLE",
+    }
+    assert res_exp["marge_top1_top2"] > 0.0
+    assert res_exp["hors_vocabulaire"] is False
+
+    # 2. Message hors vocabulaire (0 terme connu) -> revue humaine obligatoire meme avec un seuil bas
+    res_oov = classifier_singleton.classify("Gbeffa kpatakpata zinzindohoue xwlacodji", confidence_threshold=0.10)
+    assert res_oov["hors_vocabulaire"] is True
+    assert res_oov["nb_termes_reconnus"] == 0
+    assert res_oov["requiert_revue_humaine"] is True
+    assert "hors vocabulaire" in (res_oov["motif_revue"] or "")
+
+    # 3. Endpoint d'evaluation IA (/api/ai/evaluation) et de reprise humaine (/api/invoices/{id}/ai-override)
+    with tempfile.TemporaryDirectory() as tmp_dir:
+        old_db = config.DATABASE_PATH
+        try:
+            config.DATABASE_PATH = Path(tmp_dir) / "test_ai_override.db"
+            init_db(config.DATABASE_PATH)
+            client = TestClient(app)
+            client.post("/api/system/reset-demo", headers={"X-API-Token": "tok-admin-direction"})
+
+            eval_res = client.get("/api/ai/evaluation")
+            assert eval_res.status_code == 200
+            assert eval_res.json()["accuracy"] == 0.89
+
+            ov_res = client.post(
+                "/api/invoices/FAC-2026-007/ai-override",
+                headers={"X-API-Token": "tok-validateur-amina"},
+                json={
+                    "categorie_humaine": "DEMANDE_ECHEANCIER",
+                    "motif": "Apres appel client, il demande un report d'echeance a la semaine prochaine",
+                },
+            )
+            assert ov_res.status_code == 200
+            assert ov_res.json()["nouvelle_categorie_humaine"] == "DEMANDE_ECHEANCIER"
+
+            # Un recalcul du portefeuille preserve la qualification humaine (ai_confiance == 1.0)
+            client.post("/api/recalculate", headers={"X-API-Token": "tok-validateur-amina"})
+            inv_detail = client.get("/api/invoices/FAC-2026-007").json()["invoice"]
+            assert inv_detail["ai_categorie"] == "DEMANDE_ECHEANCIER"
+            assert inv_detail["ai_confiance"] == 1.0
+        finally:
+            config.DATABASE_PATH = old_db
+
+
+

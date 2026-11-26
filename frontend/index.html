@@ -1,0 +1,1672 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+    <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; base-uri 'none'">
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>BWAI 2026 — Recouvrement Client Intelligent & Explicable</title>
+    <style>
+:root {
+    color-scheme: light;
+    --white: #ffffff;
+    --green: #006037;
+    --green-deep: #003b24;
+    --orange: #ea5b0c;
+    --accent: var(--green);
+    --background: #f4f7f5;
+    --surface-tint: #f0f6f2;
+    --line: #dce6df;
+    --text: #15281f;
+    --text-secondary: #42574c;
+    --text-muted: #52655a;
+    --danger: #a73520;
+    --warning: #99410d;
+    --success: var(--green);
+    --radius: 18px;
+    --shadow: 0 3px 8px #163a2310;
+}
+
+*, *::before, *::after { box-sizing: border-box; }
+[hidden] { display: none !important; }
+body {
+    margin: 0;
+    background: var(--background);
+    color: var(--text);
+    font: 15px/1.55 -apple-system, "Segoe UI", "Liberation Sans", Arial, sans-serif;
+    -webkit-font-smoothing: antialiased;
+}
+button, input, select, textarea { font: inherit; }
+button { cursor: pointer; }
+a { color: var(--accent); text-underline-offset: 3px; }
+a:hover { text-decoration: underline !important; }
+:focus-visible { outline: 3px solid #ab430b; outline-offset: 3px; }
+strong { font-weight: 680; }
+.skip-link {
+    position: fixed;
+    z-index: 5;
+    top: 8px;
+    left: 8px;
+    transform: translateY(-160%);
+    padding: 10px 16px;
+    background: var(--white);
+}
+.skip-link:focus { transform: none; }
+
+.topbar { background: var(--white); border-bottom: 1px solid var(--line); }
+.topbar-inner, .page-shell, .emergency-banner {
+    width: min(1540px, calc(100% - 96px));
+    margin-left: auto;
+    margin-right: auto;
+}
+.topbar-inner, .topbar-controls, .brand {
+    display: flex;
+    align-items: center;
+}
+.topbar-inner { min-height: 75px; justify-content: space-between; padding: 10px 0; }
+.brand { color: var(--text); text-decoration: none; min-width: max-content; }
+.brand-mark {
+    display: grid;
+    position: relative;
+    place-items: center;
+    margin-right: 11px;
+    width: 42px;
+    height: 42px;
+    border-radius: 12px;
+    background: var(--green);
+    color: var(--white);
+    font-size: 15px;
+    font-weight: 800;
+    letter-spacing: -.08em;
+}
+.brand-mark i {
+    position: absolute;
+    top: 7px;
+    right: 6px;
+    width: 5px;
+    height: 5px;
+    border-radius: 50%;
+    background: #ff965f;
+}
+.brand-title, .brand-subtitle { display: block; }
+.brand-title { font-size: .96rem; line-height: 1.3; }
+.brand-subtitle { font-size: .74rem; color: var(--text-muted); margin-top: 2px; }
+.topbar-controls { flex-wrap: wrap; justify-content: flex-end; }
+.topbar-controls > * { margin: 4px; }
+.role-selector-wrap { display: flex; align-items: center; }
+.role-selector-wrap label { margin-right: 9px; font-size: .78rem; color: var(--text-secondary); font-weight: 650; }
+.role-select { max-width: 220px; }
+.role-select, .form-field input, .form-field select, .form-field textarea {
+    padding: 8px 11px;
+    color: var(--text);
+    background: var(--white);
+    border: 1px solid #b9cbbf;
+    border-radius: 9px;
+}
+.role-select { font-size: .82rem; }
+.page-shell { padding: 26px 0 42px; }
+.hero {
+    isolation: isolate;
+    position: relative;
+    overflow: hidden;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 30px 34px;
+    min-height: 179px;
+    color: var(--white);
+    border-radius: 23px;
+    background: linear-gradient(105deg, var(--green-deep), var(--green));
+}
+.hero-copy { position: relative; }
+.hero-context {
+    display: flex;
+    align-items: center;
+    margin: 0 0 7px;
+    font-size: .73rem;
+    color: #e1f2e9;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: .12em;
+}
+.hero-context::before {
+    content: "";
+    width: 8px;
+    height: 8px;
+    flex: 0 0 8px;
+    margin-right: 9px;
+    background: #ff8a4b;
+    border-radius: 50%;
+}
+.hero h1 { margin: 0; font-size: clamp(2rem, 3.55vw, 3.45rem); letter-spacing: -.055em; line-height: 1.08; text-wrap: balance; }
+.hero-description { margin: 10px 0 0; color: #dfefe6; font-size: .93rem; }
+.hero-visual {
+    position: absolute;
+    z-index: -1;
+    top: -100px;
+    right: 12%;
+    bottom: -210px;
+    width: 440px;
+    transform: rotate(-29deg);
+    display: grid;
+    place-items: center;
+    pointer-events: none;
+}
+.hero-visual i { position: absolute; width: 100%; height: 64%; border-radius: 46%; border: 1px solid #e3ffee26; }
+.hero-visual i:nth-child(2) { width: 82%; height: 54%; }
+.hero-visual i:nth-child(3) { width: 64%; height: 44%; }
+.hero-visual i:nth-child(4) { width: 46%; height: 34%; border-color: #ff964d80; }
+.hero-meta { display: flex; flex-wrap: wrap; align-items: stretch; margin: 4px -4px 4px 12px; }
+.hero-meta div {
+    min-width: 130px;
+    margin: 4px;
+    padding: 10px 13px;
+    border: 1px solid #e4ffef4d;
+    border-radius: 11px;
+    background: #00482be0;
+}
+.hero-meta span, .hero-meta strong { display: block; white-space: nowrap; }
+.hero-meta span { font-size: .73rem; color: #d8efe1; }
+.hero-meta strong { font-size: .94rem; margin-top: 2px; font-variant-numeric: tabular-nums; }
+
+.action-toolbar, .action-group {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+}
+.action-toolbar { justify-content: space-between; margin: 12px -4px 17px; }
+.action-group > * { margin: 4px; }
+.action-icon { margin-right: 3px; font-size: .95em; line-height: 1; }
+.btn {
+    display: inline-flex;
+    justify-content: center;
+    align-items: center;
+    gap: 7px;
+    min-height: 41px;
+    border: 1px solid transparent;
+    border-radius: 9px;
+    padding: 8px 13px;
+    color: var(--text);
+    font-size: .84rem;
+    font-weight: 680;
+    line-height: 1.28;
+    text-align: center;
+    text-decoration: none;
+    transition: background-color .15s, border-color .15s;
+}
+.btn:disabled { opacity: .65; cursor: wait; }
+.btn-primary { background: var(--green); color: var(--white); }
+.btn-primary:hover { background: var(--green-deep); }
+.btn-outline { background: var(--white); border-color: #cddbd1; }
+.btn-outline:hover { background: #e9f3ed; border-color: #9fbcac; }
+.btn-success { background: #e7f3eb; border-color: #cee6d6; color: var(--green); }
+.btn-success:hover { background: #d0e9d9; }
+.btn-danger { background: #fff0e8; border-color: #ffc6a8; color: #8e2f0c; }
+.btn-danger:hover { background: #ffe0d0; }
+.btn-text { color: var(--text-secondary); background: transparent; }
+.btn-text:hover { background: var(--surface-tint); }
+.btn-sm { min-height: 34px; padding: 6px 10px; font-size: .78rem; }
+.emergency-banner {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 10px;
+    padding: 12px 16px;
+    margin-top: 14px;
+    border-radius: 10px;
+    border: 1px solid #ffc6a8;
+    background: #fff0e8;
+    color: #842b0a;
+    font-weight: 650;
+}
+
+.kpi-grid {
+    display: grid;
+    grid-template-columns: repeat(5, minmax(0, 1fr));
+    gap: 12px;
+    margin-bottom: 22px;
+}
+.detail-shell .kpi-grid { margin-top: 18px; grid-template-columns: repeat(4, minmax(0, 1fr)); }
+.kpi-card, .panel-card {
+    background: var(--white);
+    border: 1px solid var(--line);
+    border-radius: var(--radius);
+    box-shadow: var(--shadow);
+    min-width: 0;
+}
+.kpi-card {
+    display: grid;
+    justify-items: start;
+    align-content: start;
+    gap: 5px;
+    padding: 15px 16px;
+}
+.kpi-icon { display: grid; place-items: center; position: relative; width: 30px; height: 30px; color: var(--green); background: #e9f4ed; border-radius: 9px; margin-bottom: 4px; }
+.kpi-icon::before, .kpi-icon::after { content: ""; position: absolute; }
+.kpi-icon.wallet::before { width: 15px; height: 11px; border: 1.5px solid currentColor; border-radius: 3px; }
+.kpi-icon.wallet::after { width: 4px; height: 2px; background: currentColor; right: 9px; }
+.kpi-icon.clock, .kpi-icon.review { color: #9e3b08; background: #fff1e8; }
+.kpi-icon.clock::before { width: 15px; height: 15px; border: 1.5px solid currentColor; border-radius: 50%; }
+.kpi-icon.clock::after { width: 4px; height: 5px; border: solid currentColor; border-width: 0 0 1.5px 1.5px; transform: translate(1px,-1px); }
+.kpi-icon.review::before { width: 12px; height: 15px; border: 1.5px solid currentColor; border-radius: 2px; }
+.kpi-icon.review::after { width: 5px; height: 3px; border: solid currentColor; border-width: 0 0 1.5px 1.5px; transform: rotate(-45deg); }
+.kpi-icon.pause::before { width: 14px; height: 14px; border: 1.5px solid currentColor; border-radius: 50%; }
+.kpi-icon.pause::after { width: 5px; height: 6px; border-inline: 1.5px solid currentColor; }
+.kpi-icon.cash::before { width: 15px; height: 11px; border: 1.5px solid currentColor; border-radius: 2px; }
+.kpi-icon.cash::after { width: 5px; height: 5px; border: 1px solid currentColor; border-radius: 50%; }
+.kpi-label { color: var(--text-secondary); font-size: .82rem; font-weight: 650; }
+.kpi-number {
+    font-size: clamp(1.18rem, 1.75vw, 1.78rem);
+    line-height: 1.2;
+    letter-spacing: -.045em;
+    font-weight: 760;
+    font-variant-numeric: tabular-nums;
+    overflow-wrap: anywhere;
+}
+.kpi-number.is-danger { color: var(--danger); }
+.kpi-number.is-warning { color: var(--warning); }
+.kpi-number.is-success { color: var(--success); }
+.kpi-foot { margin-top: 2px; font-size: .75rem; color: var(--text-muted); }
+
+.tabs-header { margin-bottom: 13px; }
+.tablist { display: flex; gap: 5px; overflow-x: auto; padding: 5px; border: 1px solid var(--line); border-radius: 13px; background: var(--white); scrollbar-width: thin; }
+.tab-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 7px;
+    min-height: 40px;
+    white-space: nowrap;
+    padding: 7px 13px;
+    border-radius: 8px;
+    border: 1px solid transparent;
+    background: transparent;
+    color: var(--text-secondary);
+    font-size: .85rem;
+    font-weight: 680;
+}
+.tab-btn:hover { background: var(--surface-tint); }
+.tab-btn[aria-selected="true"] { background: var(--green); color: var(--white); }
+.tab-count {
+    min-width: 22px;
+    padding: 1px 5px;
+    border-radius: 20px;
+    background: var(--surface-tint);
+    color: var(--text-secondary);
+    font-size: .69rem;
+    text-align: center;
+}
+.tab-btn[aria-selected="true"] .tab-count { background: #ffffff2b; color: var(--white); }
+.panel-card { padding: 19px; }
+.panel-header { display: flex; align-items: flex-start; justify-content: space-between; flex-wrap: wrap; gap: 12px 16px; margin-bottom: 14px; }
+.portfolio-header { display: grid; }
+.panel-title { margin: 0; font-size: clamp(1.08rem, 1.5vw, 1.43rem); letter-spacing: -.03em; line-height: 1.28; }
+.panel-subtitle { color: var(--text-muted); margin: 4px 0 0; font-size: .82rem; }
+.filter-chips { display: flex; flex-wrap: wrap; margin: -3px; }
+.filter-chips > * { margin: 3px; }
+.chip, .pill-meta, .badge {
+    display: inline-block;
+    border-radius: 7px;
+    padding: 3px 7px;
+    background: var(--surface-tint);
+    color: var(--text-secondary);
+    font-size: .72rem;
+    font-weight: 660;
+    line-height: 1.4;
+}
+.chip { padding: 5px 9px; background: var(--white); border: 1px solid var(--line); text-decoration: none; }
+.chip:hover, .chip.is-active { background: #e6f2ea; border-color: #b5d6c0; color: var(--green); }
+.table-wrapper { max-width: 100%; overflow: auto; border: 1px solid var(--line); border-radius: 11px; }
+table { width: 100%; border-collapse: collapse; text-align: left; font-size: .83rem; font-variant-numeric: tabular-nums; }
+caption { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+th, td { padding: 11px 10px; vertical-align: top; border-bottom: 1px solid #e9efeb; }
+thead th { background: var(--surface-tint); color: var(--text-secondary); font-size: .74rem; font-weight: 710; }
+tbody tr:last-child > * { border-bottom: 0; }
+tbody tr:hover > * { background: #f7fbf8; }
+tbody a:not(.btn) { font-weight: 700; }
+#panel-portfolio table { min-width: 970px; }
+#panel-portfolio td:nth-child(3), #panel-portfolio td:nth-child(4),
+#panel-portfolio td:nth-child(5), #panel-portfolio td:nth-child(6) { white-space: nowrap; }
+#panel-portfolio td:nth-child(2) { min-width: 144px; }
+#panel-portfolio td:last-child { width: 155px; }
+#panel-portfolio th:nth-child(8) { min-width: 180px; }
+#panel-review table, #panel-reminders table, #panel-proofs table, #panel-import table { min-width: 690px; }
+.detail-shell table { min-width: 400px; }
+.empty-state { text-align: center; color: var(--text-muted); padding: 23px; }
+.badge-ECHUE, .badge-CONTESTEE { background: #fcece6; color: #9a361d; }
+.badge-PARTIELLEMENT_PAYEE, .badge-EN_ATTENTE_VALIDATION { background: #fff0df; color: #8e410b; }
+.badge-SOLDEE, .badge-SIMULEE { background: #e5f4ea; color: var(--green); }
+.badge-COUVERTE_PAR_ECHEANCIER, .badge-APPROUVEE { background: #e4eff0; color: #25585e; }
+.score-box { min-width: 145px; }
+.score-box > div:first-child { display: flex; flex-wrap: wrap; gap: 4px; }
+.score-bar-track { height: 5px; background: #e8eee9; border-radius: 7px; margin: 5px 0; overflow: hidden; }
+.score-bar-fill { height: 100%; background: linear-gradient(90deg, var(--green), #3a9873); border-radius: inherit; }
+.code-hash { color: var(--text-secondary); font-size: .84em; overflow-wrap: anywhere; }
+
+dialog {
+    width: min(525px, calc(100% - 26px));
+    max-height: calc(100% - 36px);
+    padding: 0;
+    color: var(--text);
+    border: 1px solid var(--line);
+    border-radius: var(--radius);
+    box-shadow: 0 24px 60px #07231743;
+}
+dialog::backdrop { background: #06251ab3; }
+.dialog-body { padding: 23px; }
+.dialog-header h1 { margin: 0 0 13px; font-size: 1.3rem; line-height: 1.3; letter-spacing: -.03em; }
+.dialog-footer { display: flex; gap: 8px; flex-wrap: wrap; justify-content: flex-end; margin-top: 18px; }
+.form-field { display: grid; gap: 5px; margin-bottom: 10px; }
+.form-field label { font-weight: 650; font-size: .84rem; }
+.form-field input, .form-field select, .form-field textarea { width: 100%; min-height: 40px; font-size: .87rem; }
+.form-field textarea { min-height: 100px; resize: vertical; }
+input[type="file"] { max-width: 100%; }
+input::file-selector-button { margin-right: 8px; padding: 7px 10px; border: 1px solid #cddbd1; background: var(--surface-tint); color: var(--green); border-radius: 7px; cursor: pointer; }
+.lab-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; margin-bottom: 16px; }
+.detail-shell .lab-grid { grid-template-columns: minmax(0, 1.35fr) minmax(0, 1fr); }
+.lab-box { min-width: 0; background: #f8fbf9; padding: 13px; border: 1px solid var(--line); border-radius: 12px; overflow-wrap: anywhere; }
+.toast-stack { position: fixed; bottom: 14px; right: 14px; z-index: 4; width: min(360px, calc(100vw - 28px)); display: grid; gap: 8px; pointer-events: none; }
+.toast { display: grid; gap: 3px; background: var(--white); border: 1px solid var(--line); border-inline-start: 4px solid var(--green); border-radius: 10px; padding: 11px 14px; box-shadow: 0 9px 30px #0d2e1b21; overflow-wrap: anywhere; }
+.toast span { color: var(--text-secondary); font-size: .82rem; }
+.toast.is-error, .toast.is-warning { border-inline-start-color: var(--orange); }
+
+@media (max-width: 1100px) {
+    .topbar-inner, .page-shell, .emergency-banner { width: calc(100% - 54px); }
+    .kpi-card { padding: 13px; }
+}
+@media (max-width: 850px) {
+    .topbar-inner, .page-shell, .emergency-banner { width: calc(100% - 32px); }
+    .hero { flex-wrap: wrap; padding: 23px; }
+    .hero-meta { margin: 12px -4px -4px; }
+    .kpi-grid, .detail-shell .kpi-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+    .lab-grid, .detail-shell .lab-grid { grid-template-columns: 1fr; }
+}
+@media (max-width: 560px) {
+    .topbar-inner { flex-wrap: wrap; }
+    .topbar-controls { justify-content: flex-start; margin: 4px -4px 0; }
+    .page-shell { padding: 14px 0 25px; }
+    .hero { padding: 19px; border-radius: var(--radius); }
+    .hero h1 { font-size: clamp(1.76rem, 9vw, 2.35rem); }
+    .hero-description { font-size: .85rem; }
+    .hero-meta div { min-width: 0; padding: 7px 9px; }
+    .hero-meta span { font-size: .68rem; }
+    .hero-meta strong { font-size: .83rem; }
+    .hero-visual { opacity: .6; right: -210px; }
+    .kpi-grid, .detail-shell .kpi-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
+    .kpi-card { border-radius: 12px; }
+    .panel-card { padding: 12px; border-radius: 13px; }
+}
+@media (prefers-reduced-motion: reduce) {
+    *, *::before, *::after { transition: none !important; }
+}
+
+/* Table and summary in the standalone demo. */
+.row-actions { display: flex; flex-wrap: wrap; margin: -2px; }
+.row-actions > * { margin: 2px; }
+.demo-mark { background: #fff0e6; color: #83350f; padding: 6px 8px; }
+.demo-facts { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+.demo-facts div { padding: 9px 11px; background: var(--surface-tint); border-radius: 8px; }
+.demo-facts dt { color: var(--text-secondary); font-size: .78rem; }
+.demo-facts dd { margin: 2px 0 0; font-weight: 700; overflow-wrap: anywhere; }
+.hero-context::before { background: var(--orange); }
+.table-hint { display: none; }
+@media (max-width: 1040px) {
+    .table-hint { display: block; margin: 0 0 8px; font-size: .76rem; color: var(--text-muted); }
+}
+
+</style>
+</head>
+<body class="dashboard">
+<a class="skip-link" href="#main-content">Aller au contenu</a>
+
+<header class="topbar">
+    <div class="topbar-inner">
+        <a class="brand" href="#" aria-label="BWAI, retour au portefeuille">
+            <span class="brand-mark" aria-hidden="true">BW<i></i></span>
+            <span><strong class="brand-title">BWAI 2026</strong><span class="brand-subtitle">Recouvrement client</span></span>
+        </a>
+        <div class="topbar-controls">
+            <div class="role-selector-wrap">
+                <label for="operator-role-select">Opérateur</label>
+                <select id="operator-role-select" class="role-select">
+                    <option value="tok-admin-direction">Direction (ADMIN)</option>
+                    <option value="tok-validateur-amina">Amina (VALIDATEUR 1)</option>
+                    <option value="tok-validateur-boris">Boris (VALIDATEUR 2 — 4 yeux)</option>
+                    <option value="tok-gestionnaire-koffi">Koffi (GESTIONNAIRE)</option>
+                </select>
+            </div>
+
+            
+            <button type="button" class="btn btn-danger btn-sm" onclick="toggleEmergencyStop(true)">
+                Arrêt d’urgence
+            </button>
+            
+
+            <span class="pill-meta demo-mark">Démo hors ligne</span>
+        </div>
+    </div>
+</header>
+
+
+
+<div class="emergency-banner" id="demo-emergency" role="alert" hidden>
+    <span>Arrêt d’urgence actif. La simulation des envois est suspendue.</span>
+    <button class="btn btn-outline btn-sm" type="button" onclick="toggleEmergencyStop(false)">Lever l’arrêt</button>
+</div>
+<main class="page-shell" id="main-content">
+    <section class="hero" aria-labelledby="dashboard-title">
+        <div class="hero-copy">
+            <p class="hero-context">Tableau de bord</p>
+            <h1 id="dashboard-title">Portefeuille de créances</h1>
+            <p class="hero-description">Suivez les encours, priorisez les dossiers et pilotez les relances.</p>
+        </div>
+        <div class="hero-visual" aria-hidden="true"><i></i><i></i><i></i><i></i></div>
+        <div class="hero-meta">
+            <div><span>Date de référence</span><strong>2026-11-26</strong></div>
+            <div><span>Seuil de revue humaine</span><strong>750 000 FCFA</strong></div>
+        </div>
+    </section>
+    <!-- Barre d'actions principales -->
+    <div class="action-toolbar">
+        <div class="action-group">
+            <button type="button" class="btn btn-primary" onclick="callApiAction('/api/reminders/prepare-all')">
+                <span class="action-icon" aria-hidden="true">+</span>
+                Préparer les relances
+            </button>
+            <button type="button" class="btn btn-outline" onclick="callApiAction('/api/system/recover')">
+                Reprise hors ligne
+            </button>
+            <button type="button" class="btn btn-outline" onclick="callApiAction('/api/recalculate')">
+                Recalculer les scores
+            </button>
+        </div>
+        <div class="action-group">
+            <button type="button" class="btn btn-outline" onclick="confirmResetDemo()">
+                Réinitialiser la démo
+            </button>
+        </div>
+    </div>
+
+    <!-- Cartes KPIs -->
+    <section class="kpi-grid" aria-label="Indicateurs financiers du portefeuille">
+        <div class="kpi-card">
+            <span class="kpi-icon wallet" aria-hidden="true"></span>
+            <span class="kpi-label">Encours restant</span>
+            <span class="kpi-number">0 FCFA</span>
+            <span class="kpi-foot">0 factures suivies (0 soldée(s))</span>
+        </div>
+        <div class="kpi-card">
+            <span class="kpi-icon clock" aria-hidden="true"></span>
+            <span class="kpi-label">Créances échues</span>
+            <span class="kpi-number is-danger">0 FCFA</span>
+            <span class="kpi-foot">0 facture(s) échue(s) à relancer</span>
+        </div>
+        <div class="kpi-card">
+            <span class="kpi-icon review" aria-hidden="true"></span>
+            <span class="kpi-label">Revue humaine</span>
+            <span class="kpi-number is-warning">0 dossier(s)</span>
+            <span class="kpi-foot">Litiges, montants &ge; 750 000 ou cas IA</span>
+        </div>
+        <div class="kpi-card">
+            <span class="kpi-icon pause" aria-hidden="true"></span>
+            <span class="kpi-label">Dossiers suspendus</span>
+            <span class="kpi-number">0</span>
+            <span class="kpi-foot">Contestations ouvertes ou échéanciers actifs</span>
+        </div>
+        <div class="kpi-card">
+            <span class="kpi-icon cash" aria-hidden="true"></span>
+            <span class="kpi-label">Règlements simulés</span>
+            <span class="kpi-number is-success">0 FCFA</span>
+            <span class="kpi-foot">0 relance(s) envoyée(s), 0 annulée(s)</span>
+        </div>
+    </section>
+
+    <!-- Navigation par onglets (sans surcharge visuelle) -->
+    <div class="tabs-header">
+        <div class="tablist" role="tablist" aria-label="Sections de gestion du recouvrement">
+            <button type="button" role="tab" id="tab-portfolio" data-target="panel-portfolio" aria-controls="panel-portfolio" aria-selected="true" class="tab-btn">
+                Portefeuille <span class="tab-count">0</span>
+            </button>
+            <button type="button" role="tab" id="tab-review" data-target="panel-review" aria-controls="panel-review" aria-selected="false" tabindex="-1" class="tab-btn">
+                Revue humaine <span class="tab-count">1</span>
+            </button>
+            <button type="button" role="tab" id="tab-reminders" data-target="panel-reminders" aria-controls="panel-reminders" aria-selected="false" tabindex="-1" class="tab-btn">
+                Relances <span class="tab-count">0</span>
+            </button>
+            <button type="button" role="tab" id="tab-import" data-target="panel-import" aria-controls="panel-import" aria-selected="false" tabindex="-1" class="tab-btn">
+                Imports <span class="tab-count">1</span>
+            </button>
+            <button type="button" role="tab" id="tab-proofs" data-target="panel-proofs" aria-controls="panel-proofs" aria-selected="false" tabindex="-1" class="tab-btn">
+                Audit &amp; IA <span class="tab-count">0</span>
+            </button>
+        </div>
+    </div>
+
+    <!-- ONGLET 1 : Portefeuille des factures -->
+    <section role="tabpanel" id="panel-portfolio" tabindex="0" aria-labelledby="tab-portfolio">
+        <div class="panel-card">
+            <div class="panel-header portfolio-header">
+                <div>
+                    <h2 class="panel-title">Factures par ordre de priorité</h2>
+                    <p class="panel-subtitle">Score de priorité · Retard 40 % · Solde 35 % · Historique client 25 %</p>
+                </div>
+                <div class="filter-chips" aria-label="Filtrer par statut métier">
+                    <a href="#" class="chip is-active">Toutes</a>
+                    <a href="/?statut=ECHUE" class="chip ">Échues</a>
+                    <a href="/?statut=PARTIELLEMENT_PAYEE" class="chip ">Partiellement payées</a>
+                    <a href="/?statut=CONTESTEE" class="chip ">Contestées</a>
+                    <a href="/?statut=COUVERTE_PAR_ECHEANCIER" class="chip ">Sous échéancier</a>
+                    <a href="/?statut=SOLDEE" class="chip ">Soldées</a>
+                </div>
+            </div>
+
+            <p class="table-hint">Faites défiler le tableau pour voir les autres colonnes.</p>
+            <div tabindex="0" role="region" aria-labelledby="caption-invoices" class="table-wrapper">
+                <table>
+                    <caption id="caption-invoices">Liste priorisée des factures clients</caption>
+                    <thead>
+                        <tr>
+                            <th scope="col">Facture</th>
+                            <th scope="col">Client</th>
+                            <th>Échéance</th>
+                            <th>Montant initial</th>
+                            <th>Solde</th>
+                            <th>Retard</th>
+                            <th>Statut</th>
+                            <th>Priorité</th>
+                            <th>Actions</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        
+                        <tr><td class="empty-state" colspan="9">Aucune facture pour ce filtre.</td></tr>
+                        
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </section>
+
+    <!-- ONGLET 2 : Revue humaine (4 yeux) -->
+    <section role="tabpanel" id="panel-review" tabindex="0" aria-labelledby="tab-review" hidden>
+        <div class="panel-card">
+            <div class="panel-header">
+                <div>
+                    <h2 class="panel-title">Dossiers à valider</h2>
+                    <p class="panel-subtitle">
+                        Dossiers bloqués avant envoi : litiges, montants &ge; 750 000 FCFA, incertitude IA ou historique inconnu.
+                        Un validateur ne peut pas approuver une relance qu'il a lui-même créée.
+                    </p>
+                </div>
+            </div>
+
+            
+            <div tabindex="0" role="region" aria-labelledby="caption-review" class="table-wrapper">
+                <table>
+                    <caption id="caption-review">Dossiers en attente de validation humaine</caption>
+                    <thead>
+                        <tr>
+                            <th>Relance</th>
+                            <th>Facture &amp; Client</th>
+                            <th>Solde</th>
+                            <th>Créé par</th>
+                            <th>Motif de Revue Humaine</th>
+                            <th>Message Préparé</th>
+                            <th>Décision</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        
+                        <tr>
+                            <th>REL<br><small style="color:var(--text-muted);"></small></th>
+                            <td>
+                                <a href="/invoices/FAC" style="color:var(--accent); font-weight:600; text-decoration:none;">FAC</a><br>
+                                <small></small>
+                            </td>
+                            <td><strong>0 FCFA</strong></td>
+                            <td><code class="code-hash">SYSTEME</code></td>
+                            <td style="color:var(--warning); font-weight:600; max-width:260px;"></td>
+                            <td style="max-width:320px;"><small style="color:var(--text-secondary);"></small></td>
+                            <td>
+                                <div class="row-actions">
+                                    <button type="button" class="btn btn-primary btn-sm"
+                                            onclick='openReviewModal("REL", "FAC", "APPROUVER", "", "SYSTEME")'>
+                                        Examiner
+                                    </button>
+                                </div>
+                            </td>
+                        </tr>
+                        
+                    </tbody>
+                </table>
+            </div>
+            
+        </div>
+    </section>
+
+    <!-- ONGLET 3 : File des Relances et Verification Pre-Envoi -->
+    <section role="tabpanel" id="panel-reminders" tabindex="0" aria-labelledby="tab-reminders" hidden>
+        <div class="panel-card">
+            <div class="panel-header">
+                <div>
+                    <h2 class="panel-title">Suivi des relances</h2>
+                    <p class="panel-subtitle">
+                        Juste avant l'envoi simulé : recalcul temps réel du solde, contrôle du canal préféré, du délai minimal de 7 jours et du plafond de 3 relances.
+                    </p>
+                </div>
+            </div>
+
+            <div tabindex="0" role="region" aria-labelledby="caption-reminders" class="table-wrapper">
+                <table>
+                    <caption id="caption-reminders">File complète des relances graduées</caption>
+                    <thead>
+                        <tr>
+                            <th>ID Relance</th>
+                            <th>Facture &amp; Client</th>
+                            <th>Canal</th>
+                            <th>Niveau</th>
+                            <th>Traçabilité (Créé / Validé)</th>
+                            <th>Statut Action</th>
+                            <th>Action</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </section>
+
+    <!-- ONGLET 4 : Import Excel / CSV et Erreurs d'import -->
+    <section role="tabpanel" id="panel-import" tabindex="0" aria-labelledby="tab-import" hidden>
+        <div class="panel-card">
+            <div class="panel-header">
+                <div>
+                    <h2 class="panel-title">Importer des factures</h2>
+                    <p class="panel-subtitle">Importez un CSV UTF-8 avec les colonnes invoice_id, nom_affiche, date_echeance et montant_initial. Dates au format AAAA-MM-JJ, montants entiers en FCFA.</p>
+                </div>
+                <form id="form-import-upload" style="display:flex; gap:0.5rem; align-items:center; flex-wrap:wrap;">
+                    <input aria-label="Fichier de factures" type="file" id="import-file-input" accept=".csv" required style="font-size:0.8rem;">
+                    <button type="submit" class="btn btn-primary btn-sm">Importer</button>
+                </form>
+            </div>
+
+            
+            <div tabindex="0" role="region" aria-labelledby="caption-errors" class="table-wrapper">
+                <table>
+                    <caption id="caption-errors">Anomalies et doublons rejetés à l'importation</caption>
+                    <thead>
+                        <tr>
+                            <th>Lot</th>
+                            <th>Entité &amp; Ligne</th>
+                            <th>Motif du Rejet</th>
+                            <th>Données Brutes Isolées</th>
+                            <th>Horodatage</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        
+                        <tr>
+                            <th><code class="code-hash">IMP</code></th>
+                            <td> (ligne )</td>
+                            <td style="color:var(--danger); font-weight:600;"></td>
+                            <td><code class="code-hash"></code></td>
+                            <td><small></small></td>
+                        </tr>
+                        
+                    </tbody>
+                </table>
+            </div>
+            
+        </div>
+    </section>
+
+    <!-- ONGLET 5 : Laboratoire de Preuves (Audit SHA-256, Rejeu SHA-256 & Testeur IA) -->
+    <section role="tabpanel" id="panel-proofs" tabindex="0" aria-labelledby="tab-proofs" hidden>
+        <div class="panel-card">
+            <div class="lab-grid">
+                <div class="lab-box">
+                    <h3 style="margin:0 0 0.35rem; font-size:0.95rem;">Intégrité du journal</h3>
+                    <p style="margin:0 0 0.75rem; font-size:0.8rem; color:var(--text-muted);">
+                        Vérifie les empreintes SHA-256 du journal de cette session locale.
+                    </p>
+                    <button type="button" class="btn btn-primary btn-sm" onclick="verifyAuditChainUi()">
+                        Vérifier le journal
+                    </button>
+                    <div id="proof-audit-output" style="margin-top:0.75rem; font-size:0.8rem;"></div>
+                </div>
+
+                <div class="lab-box">
+                    <h3 style="margin:0 0 0.35rem; font-size:0.95rem;">Rejeu déterministe</h3>
+                    <p style="margin:0 0 0.75rem; font-size:0.8rem; color:var(--text-muted);">
+                        Recalcule tous les soldes, retards, statuts et scores et génère l'empreinte SHA-256 canonique de l'état final.
+                    </p>
+                    <button type="button" class="btn btn-outline btn-sm" onclick="runDeterministicReplayUi()">
+                        Recalculer l’empreinte
+                    </button>
+                    <div id="proof-replay-output" style="margin-top:0.75rem; font-size:0.8rem;"></div>
+                </div>
+
+                <div class="lab-box">
+                    <h3 style="margin:0 0 0.35rem; font-size:0.95rem;">Analyse d’un message</h3>
+                    <p class="panel-subtitle">Simulation locale par règles lexicales.</p>
+                    <form id="form-ai-tester">
+                        <div class="form-field" style="margin-block-end:0.5rem;">
+                            <input type="text" id="ai-test-message"
+                                   placeholder="Ex: Les sacs livrés sont humides je refuse de payer..."
+                                   aria-label="Message client à tester" required>
+                        </div>
+                        <button type="submit" class="btn btn-primary btn-sm">Analyser le message</button>
+                    </form>
+                    <div id="ai-test-output"></div>
+                </div>
+            </div>
+
+            <div class="panel-header">
+                <div>
+                    <h2 class="panel-title">Journal d’audit</h2>
+                    <p class="panel-subtitle">Traçabilité nominative de chaque action, décision humaine et empreinte SHA-256</p>
+                </div>
+            </div>
+
+            <div tabindex="0" role="region" aria-labelledby="caption-audit" class="table-wrapper">
+                <table>
+                    <caption id="caption-audit">Journal d'audit horodaté et chaîné en SHA-256</caption>
+                    <thead>
+                        <tr>
+                            <th>#</th>
+                            <th>Horodatage</th>
+                            <th>Acteur</th>
+                            <th>Action</th>
+                            <th>Objet</th>
+                            <th>Transition</th>
+                            <th>Motif</th>
+                            <th>Empreinte SHA-256</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </section>
+</main>
+
+<!-- MODALE NATIVE <dialog> : Encaissement / Paiement Simule (sans role="dialog" redondant) -->
+<dialog id="dialog-payment" closedby="any" aria-labelledby="dialog-payment-title">
+    <div class="dialog-body">
+        <div class="dialog-header">
+            <h1 id="dialog-payment-title">Simuler un règlement (<span id="pay-invoice-label"></span>)</h1>
+        </div>
+        <form id="form-payment">
+            <input type="hidden" id="pay-invoice-id">
+            <div class="form-field">
+                <label for="pay-amount">Montant reçu (FCFA)</label>
+                <input type="number" id="pay-amount" step="1" min="1" required autofocus>
+                <small style="color:var(--text-muted); font-size:0.75rem;">
+                    Si le montant dépasse le solde restant, une alerte de surpaiement et une proposition d'avoir seront générées.
+                </small>
+            </div>
+            <div class="form-field">
+                <label for="pay-reference">Référence de transaction fictive (Clé d'idempotence)</label>
+                <input type="text" id="pay-reference" required>
+            </div>
+            <div class="dialog-footer">
+                <button type="button" class="btn btn-outline" onclick="document.getElementById('dialog-payment').close()">Annuler</button>
+                <button type="submit" class="btn btn-success">Enregistrer le règlement</button>
+            </div>
+        </form>
+    </div>
+</dialog>
+
+<!-- MODALE NATIVE <dialog> : Revue Humaine & Principe des 4 Yeux -->
+<dialog id="dialog-review" closedby="any" aria-labelledby="dialog-review-title">
+    <div class="dialog-body">
+        <div class="dialog-header">
+            <h1 id="dialog-review-title">Validation humaine · <span id="rev-title-id"></span></h1>
+        </div>
+        <p style="margin:0 0 0.85rem; font-size:0.8rem; color:var(--text-secondary);">
+            Préparé par : <code class="code-hash" id="rev-cree-par"></code> · Rôles autorisés : <strong>VALIDATEUR</strong> ou <strong>ADMIN</strong> (différent du créateur).
+        </p>
+        <form id="form-review">
+            <input type="hidden" id="rev-reminder-id">
+            <div class="form-field">
+                <label for="rev-decision">Décision du superviseur</label>
+                <select id="rev-decision" autofocus>
+                    <option value="APPROUVER">APPROUVER — Autoriser l'envoi tel quel</option>
+                    <option value="MODIFIER">MODIFIER — Adapter le message et approuver</option>
+                    <option value="SUSPENDRE">SUSPENDRE — Maintenir en attente</option>
+                    <option value="REJETER">REJETER — Interdire définitivement l'envoi</option>
+                </select>
+            </div>
+            <div class="form-field">
+                <label for="rev-motif">Motif justifiant la décision (tracé dans le journal SHA-256)</label>
+                <input type="text" id="rev-motif" minlength="3" required>
+            </div>
+            <div class="form-field">
+                <label for="rev-message">Contenu du message (modifiable avant approbation)</label>
+                <textarea id="rev-message" required></textarea>
+            </div>
+            <div class="dialog-footer">
+                <button type="button" class="btn btn-outline" onclick="document.getElementById('dialog-review').close()">Fermer</button>
+                <button type="submit" class="btn btn-primary">Valider la décision</button>
+            </div>
+        </form>
+    </div>
+</dialog>
+
+<dialog id="demo-invoice" aria-labelledby="demo-invoice-title" closedby="any">
+    <div class="dialog-body">
+        <div class="dialog-header"><h1 id="demo-invoice-title">Dossier de créance</h1></div>
+        <div id="demo-invoice-content"></div>
+        <form method="dialog" class="dialog-footer"><button class="btn btn-outline" autofocus>Fermer</button></form>
+    </div>
+</dialog>
+<div id="toast-stack" class="toast-stack" aria-live="polite"></div>
+
+<script type="application/json" id="demo-seed">
+{
+  "reference": "2026-11-26",
+  "threshold": 750000,
+  "invoices": [
+    {"id":"FAC-1048","client":"Savana Distribution","channel":"WhatsApp","contact":"•• •• 42 81","due":"2026-09-18","amount":1480000,"paid":0,"history":0.9,"flag":"","message":""},
+    {"id":"FAC-1052","client":"Ateliers du Littoral","channel":"E-mail","contact":"a•••@exemple.test","due":"2026-10-03","amount":910000,"paid":0,"history":0.8,"flag":"CONTESTEE","message":"La quantité livrée ne correspond pas à la facture."},
+    {"id":"FAC-1061","client":"Marchés Horizon","channel":"SMS","contact":"•• •• 07 36","due":"2026-10-21","amount":695000,"paid":210000,"history":0.65,"flag":"","message":""},
+    {"id":"FAC-1068","client":"Coopérative du Plateau","channel":"WhatsApp","contact":"•• •• 13 52","due":"2026-11-06","amount":335000,"paid":0,"history":0.55,"flag":"","message":""},
+    {"id":"FAC-1074","client":"Terres & Saisons","channel":"E-mail","contact":"t•••@exemple.test","due":"2026-11-20","amount":420000,"paid":100000,"history":0.25,"flag":"COUVERTE_PAR_ECHEANCIER","message":"Merci pour l’échéancier convenu."},
+    {"id":"FAC-1080","client":"Noria Services","channel":"SMS","contact":"•• •• 75 18","due":"2026-11-24","amount":165000,"paid":165000,"history":0.2,"flag":"","message":""}
+  ],
+  "reminders": [
+    {"id":"REL-001","invoice":"FAC-1048","status":"EN_ATTENTE_VALIDATION","creator":"Koffi","validator":"","message":"Bonjour, merci de nous confirmer la date de règlement de la facture FAC-1048.","reason":"Solde supérieur au seuil de revue humaine."},
+    {"id":"REL-002","invoice":"FAC-1052","status":"EN_ATTENTE_VALIDATION","creator":"Direction","validator":"","message":"Bonjour, votre contestation a été enregistrée. Nous reviendrons vers vous après vérification.","reason":"Contestation ouverte."},
+    {"id":"REL-003","invoice":"FAC-1061","status":"APPROUVEE","creator":"Koffi","validator":"Amina","message":"Bonjour, un solde reste dû pour la facture FAC-1061. Merci de nous indiquer la date prévue de règlement.","reason":""}
+  ],
+  "payments": [],
+  "errors": [],
+  "audit": [],
+  "stop": false
+}
+
+</script>
+<script>
+(() => {
+    "use strict";
+
+    const $ = (selector) => document.querySelector(selector);
+    const original = $("#demo-seed").textContent;
+    const storageKey = "bwai-offline-demo-v1";
+    const actors = {
+        "tok-admin-direction": "Direction",
+        "tok-validateur-amina": "Amina",
+        "tok-validateur-boris": "Boris",
+        "tok-gestionnaire-koffi": "Koffi",
+    };
+    const money = (value) => new Intl.NumberFormat("fr-FR").format(value) + " FCFA";
+    const human = (value) => value[0] + value.slice(1).replace(/_/g, " ").toLowerCase();
+    const esc = (value) => String(value ?? "").replace(/[&<>"']/g, (c) => ({
+        "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;",
+    }[c]));
+    const badge = (code) => `<span class="badge badge-${esc(code)}">${esc(human(code))}</span>`;
+    const empty = (cols, message) => `<tr><td colspan="${cols}" class="empty-state">${message}</td></tr>`;
+    const statuses = [
+        "", "ECHUE", "PARTIELLEMENT_PAYEE", "CONTESTEE", "COUVERTE_PAR_ECHEANCIER", "SOLDEE",
+    ];
+    const reviewBody = $("#panel-review tbody");
+    const importBody = $("#panel-import tbody");
+    const stopButton = $(".topbar-controls .btn-danger");
+    const stopBanner = $("#demo-emergency");
+    const invoiceDialog = $("#demo-invoice");
+    let filter = "";
+    let state;
+
+    try {
+        state = JSON.parse(localStorage.getItem(storageKey) || original);
+    } catch {
+        state = JSON.parse(original);
+    }
+
+    function save() {
+        try {
+            localStorage.setItem(storageKey, JSON.stringify(state));
+        } catch {
+            // File URL storage may be disabled by the browser. In-memory use remains available.
+        }
+    }
+
+    function invoice(id) {
+        return state.invoices.find((item) => item.id === id);
+    }
+
+    function model(item) {
+        const balance = Math.max(0, item.amount - item.paid);
+        const days = Math.max(0, (Date.parse(state.reference) - Date.parse(item.due)) / 86400000);
+        const status = !balance ? "SOLDEE" : item.flag || (
+            item.paid ? "PARTIELLEMENT_PAYEE" : days ? "ECHUE" : "NON_ECHUE"
+        );
+        const score = balance ? (0.4 * Math.min(days / 90, 1) + 0.35 * Math.min(balance / 1500000, 1) + 0.25 * item.history) : 0;
+        return { ...item, balance, days, status, score };
+    }
+
+    function portfolio() {
+        return state.invoices.map(model).sort((a, b) => b.score - a.score || a.id.localeCompare(b.id));
+    }
+
+    function detailLink(id) {
+        return `<a href="#dossier" data-invoice="${esc(id)}">${esc(id)}</a>`;
+    }
+
+    function invoiceRow(item) {
+        return `<tr>
+            <th scope="row">${detailLink(item.id)}</th>
+            <td><strong>${esc(item.client)}</strong><br><small>${esc(item.channel)} · ${esc(item.contact)}</small></td>
+            <td>${esc(item.due)}</td><td>${money(item.amount)}</td><td><strong>${money(item.balance)}</strong></td>
+            <td>${item.days} j</td><td>${badge(item.status)}</td>
+            <td><div class="score-box"><strong>${item.score.toFixed(3)}</strong>
+            <div class="score-bar-track"><div class="score-bar-fill" style="width:${Math.round(item.score * 100)}%"></div></div>
+            <small>${item.balance ? "Retard, solde et historique" : "Facture soldée"}</small></div></td>
+            <td><div class="row-actions"><a class="btn btn-outline btn-sm" href="#dossier" data-invoice="${esc(item.id)}">Dossier</a>
+            ${item.balance ? `<button class="btn btn-success btn-sm" type="button" data-pay="${esc(item.id)}">Encaisser</button>` : ""}</div></td>
+        </tr>`;
+    }
+
+    function reminderRow(reminder, reviewing) {
+        const item = model(invoice(reminder.invoice));
+        const reviewAction = `<button class="btn btn-outline btn-sm" type="button" data-review="${reminder.id}">Examiner</button>`;
+        const action = {
+            APPROUVEE: `<button class="btn btn-primary btn-sm" type="button" data-send="${reminder.id}">Simuler l’envoi</button>`,
+            EN_ATTENTE_VALIDATION: reviewAction,
+        }[reminder.status] || "—";
+        const client = `<td>${detailLink(item.id)}<br><small>${esc(item.client)}</small></td>`;
+        if (reviewing) {
+            return `<tr><th scope="row">${reminder.id}</th>${client}<td>${money(item.balance)}</td>
+                <td>${esc(reminder.creator)}</td><td>${esc(reminder.reason)}</td>
+                <td>${esc(reminder.message)}</td><td>${reviewAction}</td></tr>`;
+        }
+        return `<tr><th scope="row">${reminder.id}</th>${client}<td>${esc(item.channel)}</td>
+            <td>${reminder.level || 1}</td><td>${esc(reminder.creator)} / ${esc(reminder.validator || "—")}</td>
+            <td>${badge(reminder.status)}<br><small>${esc(reminder.reason)}</small></td><td>${action}</td></tr>`;
+    }
+
+    function refresh() {
+        const items = portfolio();
+        const visible = items.filter((item) => !filter || item.status === filter);
+        const late = items.filter((item) => item.days && item.balance);
+        const review = state.reminders.filter((entry) => entry.status === "EN_ATTENTE_VALIDATION");
+        const sent = state.reminders.filter((entry) => entry.status === "SIMULEE").length;
+        const canceled = state.reminders.filter((entry) => entry.status === "ANNULEE").length;
+        const sumBalance = (group) => group.reduce((sum, item) => sum + item.balance, 0);
+        const stats = [
+            [money(sumBalance(items)), `${items.length} factures · ${items.filter((i) => !i.balance).length} soldées`],
+            [money(sumBalance(late)), `${late.length} factures avec un solde en retard`],
+            [review.length, `Seuil de revue · ${money(state.threshold)}`],
+            [items.filter((i) => i.balance && i.flag).length, "Contestations ou échéanciers en cours"],
+            [money(state.payments.reduce((sum, payment) => sum + payment.amount, 0)), `${sent} envois simulés · ${canceled} annulés`],
+        ];
+        document.querySelectorAll(".kpi-card").forEach((card, index) => {
+            card.querySelector(".kpi-number").textContent = stats[index][0];
+            card.querySelector(".kpi-foot").textContent = stats[index][1];
+        });
+        document.querySelectorAll(".tab-count").forEach((count, index) => {
+            count.textContent = [visible.length, review.length, state.reminders.length, state.errors.length, state.audit.length][index];
+        });
+        $("#panel-portfolio tbody").innerHTML = visible.map(invoiceRow).join("") || empty(9, "Aucune facture pour ce filtre.");
+        reviewBody.innerHTML = review.map((item) => reminderRow(item, true)).join("") || empty(7, "Aucun dossier en attente.");
+        $("#panel-reminders tbody").innerHTML = state.reminders.map((item) => reminderRow(item, false)).join("") || empty(7, "Aucune relance préparée.");
+        importBody.innerHTML = state.errors.map((error) => `<tr><th scope="row">${error.batch}</th><td>Ligne ${error.line}</td>
+            <td>${esc(error.reason)}</td><td><code class="code-hash">${esc(error.raw)}</code></td><td>${esc(error.date)}</td></tr>`).join("")
+            || empty(5, "Aucune erreur d’importation.");
+        $("#panel-proofs tbody").innerHTML = state.audit.map((event, index) => `<tr><th scope="row">${index + 1}</th>
+            <td>${esc(event.date)}</td><td>${esc(event.actor)}</td><td>${esc(event.action)}</td>
+            <td>${esc(event.subject)}</td><td>—</td><td>${esc(event.note)}</td>
+            <td><code class="code-hash">${event.hash.slice(0, 12)}…</code></td></tr>`).join("")
+            || empty(8, "Les actions effectuées dans la démo apparaissent ici.");
+        stopBanner.hidden = !state.stop;
+        stopButton.textContent = state.stop ? "Lever l’arrêt d’urgence" : "Arrêt d’urgence";
+        stopButton.onclick = () => window.toggleEmergencyStop(!state.stop);
+    }
+
+    function showDetail(item) {
+        $("#demo-invoice-title").textContent = `Facture ${item.id}`;
+        const payments = state.payments.filter((p) => p.invoice === item.id);
+        const reminders = state.reminders.filter((r) => r.invoice === item.id);
+        $("#demo-invoice-content").innerHTML = `<p><strong>${esc(item.client)}</strong><br>${esc(item.channel)} · ${esc(item.contact)}</p>
+            <dl class="demo-facts"><div><dt>Montant initial</dt><dd>${money(item.amount)}</dd></div>
+            <div><dt>Solde restant</dt><dd>${money(item.balance)}</dd></div>
+            <div><dt>Échéance</dt><dd>${esc(item.due)}</dd></div>
+            <div><dt>Statut</dt><dd>${badge(item.status)}</dd></div></dl>
+            ${item.message ? `<p>Dernier message · <q>${esc(item.message)}</q></p>` : ""}
+            <h2 class="panel-title">Paiements simulés</h2>
+            <p>${payments.map((p) => `${money(p.amount)} · ${esc(p.reference)}`).join("<br>") || "Aucun paiement simulé."}</p>
+            <h2 class="panel-title">Relances</h2>
+            <p>${reminders.map((r) => `${r.id} · ${badge(r.status)}`).join("<br>") || "Aucune relance préparée."}</p>`;
+        invoiceDialog.showModal();
+    }
+
+    document.querySelectorAll(".filter-chips a").forEach((chip, index) => {
+        chip.href = "#panel-portfolio";
+        chip.addEventListener("click", (event) => {
+            event.preventDefault();
+            filter = statuses[index];
+            document.querySelectorAll(".filter-chips a").forEach((node) => {
+                node.classList.toggle("is-active", node === chip);
+                if (node === chip) node.setAttribute("aria-current", "true");
+                else node.removeAttribute("aria-current");
+            });
+            refresh();
+        });
+    });
+
+    $("main").addEventListener("click", (event) => {
+        const control = event.target.closest("[data-invoice], [data-pay], [data-review], [data-send]");
+        if (!control) return;
+        event.preventDefault();
+        const target = control.dataset;
+        if (target.invoice) showDetail(model(invoice(target.invoice)));
+        if (target.pay) {
+            const item = model(invoice(target.pay));
+            window.openPaymentModal(item.id, item.balance);
+        }
+        if (target.review) {
+            const r = state.reminders.find((entry) => entry.id === target.review);
+            window.openReviewModal(r.id, r.invoice, "APPROUVER", r.message, r.creator);
+        }
+        if (target.send) window.callApiAction(`/api/reminders/${target.send}/send`);
+    });
+
+    async function hash(value) {
+        if (!globalThis.crypto?.subtle) throw new Error("Le calcul SHA-256 requiert un navigateur récent autorisant Web Crypto sur les fichiers locaux.");
+        const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(JSON.stringify(value)));
+        return Array.from(new Uint8Array(digest), (byte) => byte.toString(16).padStart(2, "0")).join("");
+    }
+
+    async function addAudit(actor, action, subject, note) {
+        const record = { date: new Date().toISOString(), actor, action, subject, note, previous: state.audit[state.audit.length - 1]?.hash || "GENESIS" };
+        state.audit.push({ ...record, hash: await hash(record) });
+    }
+
+    async function verifyAudit() {
+        let previous = "GENESIS";
+        for (const [index, { hash: recorded, ...record }] of state.audit.entries()) {
+            if (record.previous !== previous || await hash(record) !== recorded) {
+                return { valid: false, corrupted_event_id: index + 1, checked_events: index };
+            }
+            previous = recorded;
+        }
+        return { valid: true, checked_events: state.audit.length, head_hash: previous };
+    }
+
+    function parseCsv(input) {
+        const content = input.replace(/^\uFEFF/, "");
+        const separator = content.split(/\r?\n/, 1)[0].includes(";") ? ";" : ",";
+        const rows = [[]];
+        let value = "";
+        let quoted = false;
+        for (let index = 0; index < content.length; index += 1) {
+            const char = content[index];
+            if (char === '"') {
+                if (quoted && content[index + 1] === '"') {
+                    value += '"';
+                    index += 1;
+                } else {
+                    quoted = !quoted;
+                }
+            } else if (!quoted && (char === "\n" || char === separator)) {
+                rows[rows.length - 1].push(value.trim());
+                value = "";
+                if (char === "\n") rows.push([]);
+            } else {
+                value += char;
+            }
+        }
+        if (quoted) throw new Error("Le fichier CSV contient un champ entre guillemets non fermé.");
+        rows[rows.length - 1].push(value.trim());
+        return rows;
+    }
+
+    async function importCsv(file) {
+        if (!file?.name.toLowerCase().endsWith(".csv")) throw new Error("Sélectionnez un fichier CSV.");
+        const [headers, ...rows] = parseCsv(await file.text());
+        const columns = ["invoice_id", "nom_affiche", "date_echeance", "montant_initial"].map((key) => headers.indexOf(key));
+        if (columns.includes(-1)) throw new Error("Les en-têtes ne correspondent pas aux quatre colonnes requises.");
+        const batch = `IMP-${Date.now()}`;
+        const date = new Date().toISOString().slice(0, 10);
+        let accepted = 0;
+        let rejected = 0;
+        let duplicates = 0;
+        for (const [index, row] of rows.entries()) {
+            if (!row.some(Boolean)) continue;
+            const [id, client, due, rawAmount] = columns.map((column) => row[column] ?? "");
+            const amount = Number(rawAmount.replace(/\s/g, ""));
+            const validDate = /^\d{4}-\d{2}-\d{2}$/.test(due) && Number.isFinite(Date.parse(due))
+                && new Date(due).toISOString().slice(0, 10) === due;
+            const duplicate = Boolean(invoice(id));
+            if (duplicate || !id || !client || !validDate || !Number.isSafeInteger(amount) || amount <= 0) {
+                state.errors.push({ batch, line: index + 2, reason: duplicate ? "Facture déjà présente" : "Identifiant, client, date ou montant invalide", raw: row.join(" · "), date });
+                rejected += 1;
+                duplicates += Number(duplicate);
+            } else {
+                state.invoices.push({ id, client, due, amount, paid: 0, history: 0, flag: "", channel: "Non renseigné", contact: "—", message: "" });
+                accepted += 1;
+            }
+        }
+        return { batch_id: batch, total_accepted: accepted, total_rejected: rejected, duplicate_count: duplicates };
+    }
+
+    function classify(message) {
+        const normalized = message.toLocaleLowerCase("fr").normalize("NFD").replace(/\p{Diacritic}/gu, "");
+        if (/contest|litige|refus|erreur|non conforme/.test(normalized)) {
+            return { categorie: "Contestation", confiance: 0.9, requiert_revue_humaine: true, motif_revue: "Termes de contestation repérés." };
+        }
+        if (/payerai|reglerai|paiement prevu|virement prevu/.test(normalized)) {
+            return { categorie: "Promesse de paiement", confiance: 0.8, requiert_revue_humaine: false };
+        }
+        return { categorie: "À qualifier", confiance: 0.45, requiert_revue_humaine: true, motif_revue: "Message à interpréter par un opérateur." };
+    }
+
+    const reply = (data, status = 200) => new Response(JSON.stringify(data), { status, headers: { "Content-Type": "application/json" } });
+    const denied = (detail, status = 403) => reply({ detail }, status);
+
+    async function run(url, options = {}) {
+        const actor = actors[options.headers?.["X-API-Token"]] || "Direction";
+        const body = typeof options.body === "string" ? JSON.parse(options.body) : {};
+        if (url === "/api/audit-logs/verify") return reply(await verifyAudit());
+        if (url === "/api/system/replay") {
+            const items = portfolio();
+            return reply({ invoice_count: items.length, reference_date: state.reference, state_hash: await hash(items) });
+        }
+        if (url === "/api/ai/classify") return reply(classify(body.message_client));
+        if (!globalThis.crypto?.subtle) return denied("Ce navigateur ne permet pas de journaliser les actions sur un fichier local.", 400);
+
+        if (url === "/api/system/reset-demo") {
+            if (actor !== "Direction") return denied("La réinitialisation est réservée à la Direction.");
+            state = JSON.parse(original);
+            save();
+            return reply({ message: "Données de démonstration réinitialisées." });
+        }
+        if (url === "/api/system/emergency-stop") {
+            if (actor !== "Direction") return denied("Arrêt d’urgence réservé à la Direction.");
+            state.stop = body.active;
+            await addAudit(actor, body.active ? "Arrêt d’urgence" : "Reprise des envois", "Système", body.motif);
+            save();
+            return reply({ actor });
+        }
+        if (url === "/api/payments/simulate") {
+            const item = invoice(body.invoice_id);
+            if (!item || !Number.isSafeInteger(body.montant) || body.montant <= 0 || !body.reference_fictive) {
+                return denied("Facture, montant ou référence invalide.", 400);
+            }
+            if (state.payments.some((p) => p.reference === body.reference_fictive)) {
+                return reply({ duplicate: true, message: "Cette référence de règlement est déjà enregistrée." });
+            }
+            const balance = model(item).balance;
+            if (!balance) return denied("La facture est déjà soldée.", 409);
+            const overpayment = Math.max(0, body.montant - balance);
+            item.paid += Math.min(body.montant, balance);
+            state.payments.push({ invoice: item.id, amount: body.montant, reference: body.reference_fictive });
+            await addAudit(actor, "Règlement simulé", item.id, money(body.montant));
+            save();
+            return reply({ solde_restant: model(item).balance, statut_calcule: human(model(item).status),
+                surpaiement_detecte: Boolean(overpayment), proposition_avoir: `Avoir proposé · ${money(overpayment)}` });
+        }
+        if (url === "/api/import/upload") {
+            const result = await importCsv(options.body.get("file"));
+            await addAudit(actor, "Import CSV", result.batch_id, `${result.total_accepted} lignes acceptées`);
+            save();
+            return reply(result);
+        }
+        if (url === "/api/reminders/prepare-all") {
+            let created = 0;
+            for (const item of portfolio()) {
+                if (!item.balance || !item.days || item.flag === "COUVERTE_PAR_ECHEANCIER") continue;
+                const prior = state.reminders.filter((r) => r.invoice === item.id);
+                if (prior.some((r) => ["APPROUVEE", "EN_ATTENTE_VALIDATION"].includes(r.status)) || prior.length >= 3) continue;
+                const needsReview = item.balance >= state.threshold || item.flag || item.history === 0;
+                state.reminders.push({
+                    id: `REL-${String(state.reminders.length + 1).padStart(3, "0")}`,
+                    invoice: item.id, creator: actor, validator: "", level: prior.length + 1,
+                    status: needsReview ? "EN_ATTENTE_VALIDATION" : "APPROUVEE",
+                    message: `Bonjour, un solde de ${money(item.balance)} reste dû pour la facture ${item.id}.`,
+                    reason: needsReview ? "Solde élevé, contestation ou historique indisponible." : "",
+                });
+                created += 1;
+            }
+            await addAudit(actor, "Préparation des relances", "Portefeuille", `${created} relance(s) préparée(s)`);
+            save();
+            return reply({ message: `${created} relance(s) préparée(s).` });
+        }
+        if (url === "/api/recalculate" || url === "/api/system/recover") {
+            await addAudit(actor, url.endsWith("recover") ? "Reprise hors ligne" : "Recalcul", "Portefeuille", "Vérification de l’état local.");
+            save();
+            return reply({ message: "Le portefeuille local a été vérifié." });
+        }
+        const reviewId = url.match(/^\/api\/review\/([^/]+)$/)?.[1];
+        const sendId = url.match(/^\/api\/reminders\/([^/]+)\/send$/)?.[1];
+        const reminder = state.reminders.find((r) => r.id === (reviewId || sendId));
+        if (!reminder) return denied("Action ou relance introuvable.", 404);
+
+        if (reviewId) {
+            if (actor === "Koffi" || actor === reminder.creator) return denied("La décision requiert un validateur différent du créateur.");
+            if (reminder.status !== "EN_ATTENTE_VALIDATION") return denied("Cette relance n’est plus en attente.", 409);
+            const decisions = { APPROUVER: "APPROUVEE", MODIFIER: "APPROUVEE", SUSPENDRE: "EN_ATTENTE_VALIDATION", REJETER: "REJETEE" };
+            if (!decisions[body.decision] || !body.motif) return denied("Décision ou motif invalide.", 400);
+            reminder.status = decisions[body.decision];
+            reminder.validator = actor;
+            reminder.reason = body.motif;
+            if (body.decision === "MODIFIER") reminder.message = body.nouveau_message;
+            await addAudit(actor, "Revue humaine", reminder.id, body.motif);
+            save();
+            return reply({ statut_action: human(reminder.status), valide_par: actor });
+        }
+
+        if (state.stop) return denied("L’arrêt d’urgence bloque les envois simulés.", 409);
+        if (reminder.status !== "APPROUVEE") return denied("La relance doit être approuvée.", 409);
+        const item = model(invoice(reminder.invoice));
+        const previous = state.reminders.filter((r) => r.invoice === item.id && r.status === "SIMULEE");
+        if (previous.length >= 3 || previous.some((r) => Date.parse(state.reference) - Date.parse(r.sentAt) < 7 * 86400000)) {
+            return reply({ status: "MIN_DELAY", message: "Respectez le délai de sept jours et le plafond de trois relances." });
+        }
+        if (item.balance && item.status === "CONTESTEE") return denied("Une contestation est ouverte sur ce dossier.", 409);
+        if (item.balance && item.channel === "Non renseigné") return denied("Renseignez le canal du client avant l’envoi.", 409);
+        reminder.status = item.balance ? "SIMULEE" : "ANNULEE";
+        reminder.sentAt = state.reference;
+        await addAudit(actor, "Contrôle avant envoi", reminder.id, human(reminder.status));
+        save();
+        return reply({ status: item.balance ? "SENT" : "CANCELLED", message: item.balance ? "Envoi simulé." : "La facture a déjà été soldée." });
+    }
+
+    window.confirmResetDemo = () => {
+        if (window.confirm("Réinitialiser les factures, les paiements et le journal de cette démo ?")) {
+            window.callApiAction("/api/system/reset-demo");
+        }
+    };
+
+    let pending = Promise.resolve();
+    window.bwaiDemo = {
+        refresh,
+        request(url, options) {
+            // Serialize mutations so the audit chain keeps a single order.
+            const task = pending.then(() => run(url, options)).catch((error) => denied(error.message, 400));
+            pending = task.then(() => undefined);
+            return task;
+        },
+    };
+    refresh();
+})();
+
+</script>
+<script>
+/*
+ * BWAI 2026 - Logique Client Moderne (Onglets accessibles, Modales <dialog>, RBAC en direct, Toasts)
+ */
+
+(function () {
+    "use strict";
+
+    const request = window.bwaiDemo?.request || window.fetch.bind(window);
+    const refresh = window.bwaiDemo?.refresh || (() => window.location.reload());
+
+    function storage(type, key, value) {
+        try {
+            const area = window[type];
+            return value === undefined ? area.getItem(key) : area.setItem(key, value);
+        } catch {
+            return null;
+        }
+    }
+
+    function handleAsync(action) {
+        return async (event) => {
+            event?.preventDefault?.();
+            const submit = event?.submitter;
+            if (submit) submit.disabled = true;
+            try {
+                await action(event);
+            } catch (error) {
+                showToast("Action non effectuée", error.message || String(error), "error");
+            } finally {
+                if (submit) submit.disabled = false;
+            }
+        };
+    }
+
+    function escapeHtml(value) {
+        const node = document.createElement("span");
+        node.textContent = String(value ?? "");
+        return node.innerHTML;
+    }
+
+    // --- 1. Gestion du profil operateur (RBAC & 4 yeux) ---
+    const ROLE_STORAGE_KEY = "bwai_active_token";
+    const roleSelect = document.getElementById("operator-role-select");
+
+    if (roleSelect) {
+        const savedToken = storage("localStorage", ROLE_STORAGE_KEY);
+        if (savedToken && Array.from(roleSelect.options).some((o) => o.value === savedToken)) {
+            roleSelect.value = savedToken;
+        }
+        roleSelect.addEventListener("change", () => {
+            storage("localStorage", ROLE_STORAGE_KEY, roleSelect.value);
+            const label = roleSelect.options[roleSelect.selectedIndex].text;
+            showToast("Profil actif changé", `Opérateur : ${label}`, "success");
+        });
+    }
+
+    function getActiveHeaders(extraHeaders = {}) {
+        const headers = { ...extraHeaders };
+        const token = roleSelect ? roleSelect.value : storage("localStorage", ROLE_STORAGE_KEY);
+        if (token) {
+            headers["X-API-Token"] = token;
+        }
+        return headers;
+    }
+
+    // --- 2. Systeme de notifications Toast ---
+    function showToast(title, message, type = "info") {
+        const stack = document.getElementById("toast-stack");
+        if (!stack) return;
+        const el = document.createElement("div");
+        el.className = `toast is-${type}`;
+        const strong = document.createElement("strong");
+        strong.textContent = title;
+        const span = document.createElement("span");
+        span.textContent = message;
+        el.append(strong, span);
+        stack.appendChild(el);
+        setTimeout(() => {
+            el.remove();
+        }, 4200);
+    }
+    window.showToast = showToast;
+
+    // --- 3. Navigation par onglets au clavier ---
+    const tablist = document.querySelector('[role="tablist"]');
+    if (tablist) {
+        const tabs = Array.from(tablist.querySelectorAll('[role="tab"]'));
+        const panels = tabs.map((tab) => document.getElementById(tab.dataset.target));
+
+        function activateTab(selectedTab, moveFocus = false) {
+            tabs.forEach((tab, idx) => {
+                const isSelected = tab === selectedTab;
+                tab.setAttribute("aria-selected", isSelected ? "true" : "false");
+                tab.tabIndex = isSelected ? 0 : -1;
+                const panel = panels[idx];
+                if (panel) {
+                    if (isSelected) {
+                        panel.removeAttribute("hidden");
+                    } else {
+                        panel.hidden = true;
+                    }
+                }
+            });
+            if (moveFocus) {
+                selectedTab.focus();
+            }
+            if (moveFocus) selectedTab.scrollIntoView({ block: "nearest", inline: "nearest" });
+            if (selectedTab.id) {
+                storage("sessionStorage", "bwai_active_tab", selectedTab.id);
+            }
+        }
+
+        tabs.forEach((tab, idx) => {
+            tab.addEventListener("click", () => activateTab(tab, false));
+            tab.addEventListener("keydown", (e) => {
+                let nextIdx = null;
+                if (e.key === "ArrowRight") nextIdx = (idx + 1) % tabs.length;
+                if (e.key === "ArrowLeft") nextIdx = (idx - 1 + tabs.length) % tabs.length;
+                if (e.key === "Home") nextIdx = 0;
+                if (e.key === "End") nextIdx = tabs.length - 1;
+                if (nextIdx !== null) {
+                    e.preventDefault();
+                    activateTab(tabs[nextIdx], true);
+                }
+            });
+        });
+
+        const savedTabId = storage("sessionStorage", "bwai_active_tab");
+        const savedTab = savedTabId ? document.getElementById(savedTabId) : null;
+        if (savedTab && tabs.includes(savedTab)) {
+            activateTab(savedTab, false);
+        }
+    }
+
+    // --- 4. Fallback light-dismiss pour <dialog closedby="any"> (Guide modern-web-guidance: dialog) ---
+    if (typeof HTMLDialogElement !== "undefined" && !("closedBy" in HTMLDialogElement.prototype)) {
+        const outside = (e, dialog) => {
+            const r = dialog.getBoundingClientRect();
+            return e.clientX < r.left || e.clientX > r.right || e.clientY < r.top || e.clientY > r.bottom;
+        };
+        for (const dialog of document.querySelectorAll('dialog[closedby="any"]')) {
+            let pressedOutside = false;
+            dialog.addEventListener("pointerdown", (e) => {
+                pressedOutside = outside(e, dialog);
+            });
+            dialog.addEventListener("pointerup", (e) => {
+                if (pressedOutside && outside(e, dialog)) dialog.close();
+            });
+        }
+    }
+
+    // --- 5. Appels API generiques ---
+    window.callApiAction = async function (url, reloadAfter = true) {
+        try {
+            const res = await request(url, {
+                method: "POST",
+                headers: getActiveHeaders(),
+            });
+            const data = await res.json();
+            if (!res.ok) {
+                showToast(`Erreur HTTP ${res.status}`, data.detail || "Action refusée", "error");
+                return;
+            }
+            const summary = data.reason || data.message || data.status || "Opération effectuée";
+            const toastType =
+                typeof data.status === "string" && (data.status.includes("BLOCKED") || data.status.includes("CANCELLED") || data.status.includes("MIN_DELAY"))
+                    ? "warning"
+                    : "success";
+            showToast("Opération terminée", summary, toastType);
+            if (reloadAfter) {
+                setTimeout(refresh, 950);
+            }
+        } catch (err) {
+            showToast("Erreur réseau", String(err), "error");
+        }
+    };
+
+    // --- 6. Modale de Paiement Simule ---
+    const payDialog = document.getElementById("dialog-payment");
+    const payForm = document.getElementById("form-payment");
+    window.openPaymentModal = function (invoiceId, soldeRestant) {
+        if (!payDialog) return;
+        document.getElementById("pay-invoice-id").value = invoiceId;
+        document.getElementById("pay-invoice-label").textContent = invoiceId;
+        document.getElementById("pay-amount").value = soldeRestant;
+        document.getElementById("pay-reference").value = `MOMO-SIM-${invoiceId}`;
+        payDialog.showModal();
+    };
+
+    if (payForm) {
+        payForm.addEventListener("submit", handleAsync(async () => {
+            const payload = {
+                invoice_id: document.getElementById("pay-invoice-id").value,
+                montant: parseFloat(document.getElementById("pay-amount").value),
+                reference_fictive: document.getElementById("pay-reference").value.trim(),
+            };
+            const res = await request("/api/payments/simulate", {
+                method: "POST",
+                headers: getActiveHeaders({ "Content-Type": "application/json" }),
+                body: JSON.stringify(payload),
+            });
+            const data = await res.json();
+            payDialog.close();
+            if (!res.ok) {
+                showToast(`Erreur ${res.status}`, data.detail || "Paiement refusé", "error");
+                return;
+            }
+            if (data.duplicate) {
+                showToast("Doublon bloqué (Idempotence)", data.message, "warning");
+            } else if (data.surpaiement_detecte) {
+                showToast("Surpaiement détecté !", data.proposition_avoir, "warning");
+            } else {
+                showToast("Paiement enregistré", `Nouveau solde : ${data.solde_restant} FCFA (${data.statut_calcule})`, "success");
+            }
+            setTimeout(refresh, 1200);
+        }));
+    }
+
+    // --- 7. Modale de Revue Humaine (4 yeux & edition du message) ---
+    const revDialog = document.getElementById("dialog-review");
+    const revForm = document.getElementById("form-review");
+    window.openReviewModal = function (reminderId, invoiceId, currentDecision, currentMessage, creePar) {
+        if (!revDialog) return;
+        document.getElementById("rev-reminder-id").value = reminderId;
+        document.getElementById("rev-title-id").textContent = `${reminderId} (${invoiceId})`;
+        document.getElementById("rev-cree-par").textContent = creePar || "SYSTEME";
+        document.getElementById("rev-decision").value = currentDecision;
+        document.getElementById("rev-message").value = currentMessage;
+        document.getElementById("rev-motif").value = "Vérifié et validé après contrôle du dossier";
+        revDialog.showModal();
+    };
+
+    if (revForm) {
+        revForm.addEventListener("submit", handleAsync(async () => {
+            const reminderId = document.getElementById("rev-reminder-id").value;
+            const payload = {
+                decision: document.getElementById("rev-decision").value,
+                motif: document.getElementById("rev-motif").value.trim(),
+                nouveau_message: document.getElementById("rev-message").value.trim(),
+            };
+            const res = await request(`/api/review/${encodeURIComponent(reminderId)}`, {
+                method: "POST",
+                headers: getActiveHeaders({ "Content-Type": "application/json" }),
+                body: JSON.stringify(payload),
+            });
+            const data = await res.json();
+            revDialog.close();
+            if (!res.ok) {
+                showToast(`Accès refusé (${res.status})`, data.detail || "Validation refusée", "error");
+                return;
+            }
+            showToast(
+                `Décision appliquée : ${data.statut_action}`,
+                `Validé par ${data.valide_par || "opérateur"}`,
+                "success"
+            );
+            setTimeout(refresh, 1000);
+        }));
+    }
+
+    // --- 8. Interrupteur d'arret d'urgence (Kill-Switch) ---
+    window.toggleEmergencyStop = handleAsync(async (activeState) => {
+        const res = await request("/api/system/emergency-stop", {
+            method: "POST",
+            headers: getActiveHeaders({ "Content-Type": "application/json" }),
+            body: JSON.stringify({
+                active: activeState,
+                motif: activeState
+                    ? "Activation arrêt d'urgence depuis le tableau de bord"
+                    : "Levée de l'arrêt d'urgence depuis le tableau de bord",
+            }),
+        });
+        const data = await res.json();
+        if (!res.ok) {
+            showToast(`Accès refusé (${res.status})`, data.detail || "Réservé au rôle ADMIN", "error");
+            return;
+        }
+        showToast(
+            activeState ? "Arrêt d'urgence activé" : "Arrêt d'urgence levé",
+            `Action exécutée par ${data.actor}`,
+            activeState ? "warning" : "success"
+        );
+        setTimeout(refresh, 900);
+    });
+
+    // --- 9. Import de fichier Excel / CSV ---
+    const uploadForm = document.getElementById("form-import-upload");
+    if (uploadForm) {
+        uploadForm.addEventListener("submit", handleAsync(async () => {
+            const fileInput = document.getElementById("import-file-input");
+            if (!fileInput || !fileInput.files.length) return;
+            const formData = new FormData();
+            formData.append("file", fileInput.files[0]);
+
+            const res = await request("/api/import/upload", {
+                method: "POST",
+                headers: getActiveHeaders(),
+                body: formData,
+            });
+            const data = await res.json();
+            if (!res.ok) {
+                showToast("Erreur d'import", data.detail || "Fichier invalide", "error");
+                return;
+            }
+            showToast(
+                `Lot ${data.batch_id} importé`,
+                `Acceptées : ${data.total_accepted} | Rejetées : ${data.total_rejected} | Doublons : ${data.duplicate_count}`,
+                data.total_rejected > 0 ? "warning" : "success"
+            );
+            setTimeout(refresh, 1200);
+        }));
+    }
+
+    // --- 10. Laboratoire de preuves (Audit SHA-256, Rejeu SHA-256, Simulateur IA) ---
+    window.verifyAuditChainUi = handleAsync(async () => {
+        const box = document.getElementById("proof-audit-output");
+        const res = await request("/api/audit-logs/verify");
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.detail || "Action refusée");
+        if (box) {
+            box.innerHTML = data.valid
+                ? `<span class="badge badge-SOLDEE">Chaîne SHA-256 Intègre (${escapeHtml(data.checked_events)} événements vérifiés)</span><div style="margin-top:6px;">Head Hash : <code class="code-hash">${escapeHtml(data.head_hash)}</code></div>`
+                : `<span class="badge badge-ECHUE">Alerte corruption : événement #${escapeHtml(data.corrupted_event_id)}</span>`;
+        }
+        showToast("Vérification SHA-256", `${escapeHtml(data.checked_events)} événements vérifiés (Valide : ${data.valid})`, data.valid ? "success" : "warning");
+    });
+
+    window.runDeterministicReplayUi = handleAsync(async () => {
+        const box = document.getElementById("proof-replay-output");
+        const res = await request("/api/system/replay", { method: "POST", headers: getActiveHeaders() });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.detail || "Action refusée");
+        if (box) {
+            box.innerHTML = `<span class="badge badge-COUVERTE_PAR_ECHEANCIER">${escapeHtml(data.invoice_count)} factures recalculées à la date ${escapeHtml(data.reference_date)}</span><div style="margin-top:6px;">State Hash SHA-256 : <code class="code-hash">${escapeHtml(data.state_hash)}</code></div>`;
+        }
+        showToast("Rejeu déterministe", `Empreinte SHA-256 : ${data.state_hash.slice(0, 16)}...`, "success");
+    });
+
+    const aiTestForm = document.getElementById("form-ai-tester");
+    if (aiTestForm) {
+        aiTestForm.addEventListener("submit", handleAsync(async () => {
+            const msg = document.getElementById("ai-test-message").value.trim();
+            if (!msg) return;
+            const res = await request("/api/ai/classify", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ message_client: msg }),
+            });
+            const data = await res.json();
+            if (!res.ok) throw new Error(data.detail || "Analyse refusée");
+            const out = document.getElementById("ai-test-output");
+            if (out) {
+                const revBadge = data.requiert_revue_humaine
+                    ? `<span class="badge badge-EN_ATTENTE_VALIDATION">Revue Humaine Obligatoire</span>`
+                    : `<span class="badge badge-SOLDEE">Envoi Automatique Autorisé</span>`;
+                out.innerHTML = `
+                    <div style="display:flex; gap:8px; align-items:center; flex-wrap:wrap; margin-top:8px;">
+                        <span class="badge badge-CONTESTEE">${escapeHtml(data.categorie)}</span>
+                        <span class="pill-meta">Confiance : ${(data.confiance * 100).toFixed(1)}%</span>
+                        ${revBadge}
+                    </div>
+                    <div style="font-size:0.8rem; color:var(--text-secondary); margin-top:6px;">
+                        ${escapeHtml(data.motif_revue || "Aucun motif de blocage détecté.")}
+                    </div>
+                `;
+            }
+        }));
+    }
+})();
+
+
+</script>
+</body>
+</html>

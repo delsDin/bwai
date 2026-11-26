@@ -61,22 +61,39 @@ def db_atomic(db_path: Path | None = None) -> Iterator[sqlite3.Connection]:
 
 
 def init_db(db_path: Path | None = None) -> None:
-    """Crée les tables SQLite et insère les paramètres par défaut s'ils n'existent pas."""
+    """Crée les tables SQLite, migre les colonnes manquantes si nécessaire et insère les paramètres par défaut."""
     schema_sql = config.SCHEMA_PATH.read_text(encoding="utf-8")
     with db_session(db_path) as conn:
         conn.executescript(schema_sql)
+        # Auto-migration idempotente si une base SQLite preexistante est ouverte
+        for alter_sql in (
+            "ALTER TABLE reminders ADD COLUMN cree_par TEXT NOT NULL DEFAULT 'SYSTEME'",
+            "ALTER TABLE reminders ADD COLUMN valide_par TEXT",
+            "ALTER TABLE audit_logs ADD COLUMN prev_hash TEXT NOT NULL DEFAULT 'GENESIS'",
+            "ALTER TABLE audit_logs ADD COLUMN entry_hash TEXT NOT NULL DEFAULT ''",
+        ):
+            try:
+                conn.execute(alter_sql)
+            except sqlite3.OperationalError:
+                pass
         default_settings = [
             ("reference_date", config.DEFAULT_REFERENCE_DATE.isoformat(), "Date de référence pour les calculs reproductibles"),
             ("high_amount_threshold", str(config.DEFAULT_HIGH_AMOUNT_THRESHOLD), "Seuil gros montant (FCFA) pour revue humaine obligatoire"),
             ("ai_confidence_threshold", str(config.DEFAULT_AI_CONFIDENCE_THRESHOLD), "Seuil de confiance IA minimal avant revue humaine"),
             ("default_channel", config.DEFAULT_CHANNEL, "Canal simulé par défaut (WHATSAPP, SMS, EMAIL)"),
             ("emergency_stop", "0", "Interrupteur d'arrêt d'urgence (1 = bloque tout envoi simulé)"),
-            ("require_auth", "0", "Mode authentification stricte sur toutes les routes (0 ou 1)"),
+            ("require_auth", "1", "Mode authentification stricte sur toutes les routes (0 ou 1)"),
             ("allow_audit_reset", "0", "Autorisation interne temporaire de purge lors du reset de démo"),
         ]
         conn.executemany(
             "INSERT OR IGNORE INTO settings (key, value, description) VALUES (?, ?, ?)",
             default_settings,
+        )
+        # Le mode d'authentification est impose a chaque demarrage depuis la configuration (.env),
+        # y compris sur une base SQLite creee avant l'activation de l'authentification stricte.
+        conn.execute(
+            "UPDATE settings SET value = ? WHERE key = 'require_auth'",
+            ("1" if config.REQUIRE_AUTH else "0",),
         )
         default_users = [
             (

@@ -9,12 +9,14 @@ import config
 from database.db import init_db
 from routes.api_routes import router as api_router
 from routes.web_routes import router as web_router
+from services.ai_classifier import classifier_singleton
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    # Initialisation de la base SQLite locale au demarrage (Module K)
+    # Initialisation de la base SQLite locale et pre-entrainement thread-safe du modele IA au demarrage
     init_db()
+    classifier_singleton.ensure_trained()
     yield
 
 
@@ -28,11 +30,14 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
-# Montage des fichiers statiques
-(config.BASE_DIR / "static" / "css").mkdir(parents=True, exist_ok=True)
-(config.BASE_DIR / "static" / "js").mkdir(parents=True, exist_ok=True)
-(config.BASE_DIR / "templates").mkdir(parents=True, exist_ok=True)
-app.mount("/static", StaticFiles(directory=str(config.BASE_DIR / "static")), name="static")
+# Montage des fichiers statiques depuis frontend/static
+FRONTEND_DIR = config.BASE_DIR / "frontend"
+STATIC_DIR = FRONTEND_DIR / "static"
+TEMPLATES_DIR = FRONTEND_DIR / "templates"
+
+STATIC_DIR.mkdir(parents=True, exist_ok=True)
+TEMPLATES_DIR.mkdir(parents=True, exist_ok=True)
+app.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")
 
 # Enregistrement des routes Web (Jinja2) et API REST (/api/...)
 app.include_router(web_router)

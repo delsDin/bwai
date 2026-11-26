@@ -84,9 +84,15 @@ Le TDR impose de présenter séparément la performance brute de l'IA, la calibr
 ### 5.1 Règle de routage à 3 niveaux (`services/ai_classifier.py`)
 
 Un dossier est envoyé en revue humaine obligatoire (`requiert_revue_humaine = True`) dès qu'au moins une des conditions suivantes est vraie :
-1. **Catégorie sensible** : la classe prédite est `LITIGE`, `DEMANDE_ECHEANCIER` ou `ANNONCE_PAIEMENT`.
-2. **Garde-fou lexical critique sur `RETARD_SIMPLE`** (`detect_critical_patterns`) : même si le modèle prédit `RETARD_SIMPLE`, toute présence d'une **négation** (*« ne … pas »*, *« jamais »*, *« aucun »*, *« pas reçu »*) ou d'un **montant / échéance chiffré** (*`25000`*, *`fcfa`*, *`tranches`*, *`fois`*) force la revue humaine.
-3. **Seuil de confiance IA** : le score $\max_c P(c \mid x)$ est strictement inférieur au seuil configuré (`ai_confidence_threshold`).
+1. **Détection hors-vocabulaire (`hors_vocabulaire = True`)** : si aucun terme ou bigramme du message client n'appartient au lexique d'entraînement (`nb_termes_reconnus == 0`, ex. message en langue locale fon/yoruba/mina ou argot inédit), le message est immédiatement routé en revue humaine.
+2. **Catégorie sensible** : la classe prédite est `LITIGE`, `DEMANDE_ECHEANCIER` ou `ANNONCE_PAIEMENT`.
+3. **Garde-fou lexical critique sur `RETARD_SIMPLE`** (`detect_critical_patterns`) : même si le modèle prédit `RETARD_SIMPLE`, toute présence d'une **négation** (*« ne … pas »*, *« jamais »*, *« aucun »*, *« pas reçu »*) ou d'un **montant / échéance chiffré** (*`25000`*, *`fcfa`*, *`tranches`*, *`fois`*) force la revue humaine.
+4. **Seuil de confiance IA** : le score $\max_c P(c \mid x)$ est strictement inférieur au seuil configuré (`ai_confidence_threshold`).
+
+### 5.1 bis Explicabilité locale (White-Box AI) et Reprise Humaine (`POST /api/invoices/{id}/ai-override`)
+
+- **Attribution explicable par terme (`termes_explicatifs`)** : pour chaque message classé, le pipeline calcule en $< 0{,}2\text{ ms}$ la contribution linéaire exacte $w_{c,j} \times \text{TF-IDF}_j(x)$ de chaque mot/bigramme présent dans le message, ainsi que la distribution complète des probabilités (`probabilites_classes`) et la marge d'incertitude `marge_top1_top2 = P(c_1) - P(c_2)`.
+- **Reprise humaine persistante** : via la fiche dossier (`POST /api/invoices/{invoice_id}/ai-override`), un opérateur humain peut confirmer ou corriger la qualification IA d'un message client ; la décision humaine (`ai_confiance = 1.0`) est préservée lors des recalculs ultérieurs et tracée dans le journal SHA-256 (`REPRISE_HUMAINE_QUALIFICATION_IA`).
 
 ### 5.2 Calibration du seuil : Courbe Couverture / Erreur sur `data/test.csv`
 

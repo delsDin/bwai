@@ -8,6 +8,7 @@ et d'envoyer tout cas incertain (confiance < 0.75) dans la file de revue humaine
 import csv
 from pathlib import Path
 import re
+import threading
 from typing import Dict, Any, List, Tuple
 from sklearn.feature_extraction.text import TfidfVectorizer
 from sklearn.linear_model import LogisticRegression
@@ -74,14 +75,45 @@ class ClientMessageClassifier:
             ("clf", LogisticRegression(C=2.0, class_weight="balanced", random_state=42, max_iter=1000)),
         ])
         self._is_trained = False
+        self._lock = threading.Lock()
         self.train_size = 0
 
     def ensure_trained(self) -> None:
         if not self._is_trained:
-            texts, labels, _ = load_labeled_dataset(self.train_csv_path)
-            self.pipeline.fit(texts, labels)
-            self.train_size = len(texts)
-            self._is_trained = True
+            with self._lock:
+                if not self._is_trained:
+                    texts, labels, _ = load_labeled_dataset(self.train_csv_path)
+                    self.pipeline.fit(texts, labels)
+                    self.train_size = len(texts)
+                    self._is_trained = True
+
+    def _extract_explanation(self, message: str, class_idx: int, top_k: int = 4) -> Tuple[List[Dict[str, Any]], int]:
+        """
+        Explique localement la prediction lineaire (TF-IDF x coefficient LogisticRegression) :
+        retourne les top_k n-grammes presents dans le message qui contribuent le plus a la classe predite,
+        ainsi que le nombre total de termes du message reconnus dans le vocabulaire d'entrainement.
+        """
+        tfidf = self.pipeline.named_steps["tfidf"]
+        clf = self.pipeline.named_steps["clf"]
+        vec = tfidf.transform([message])
+        nonzero_indices = vec.nonzero()[1]
+        nb_known_terms = int(len(nonzero_indices))
+        if nb_known_terms == 0:
+            return [], 0
+
+        feature_names = tfidf.get_feature_names_out()
+        coefs = clf.coef_[class_idx]
+        contributions: List[Tuple[str, float]] = []
+        for feat_idx in nonzero_indices:
+            weight = float(vec[0, feat_idx] * coefs[feat_idx])
+            contributions.append((str(feature_names[feat_idx]), round(weight, 4)))
+
+        contributions.sort(key=lambda item: item[1], reverse=True)
+        top_terms = [
+            {"terme": term, "contribution": weight}
+            for term, weight in contributions[:top_k]
+        ]
+        return top_terms, nb_known_terms
 
     def classify(
         self,
@@ -92,6 +124,11 @@ class ClientMessageClassifier:
             return {
                 "categorie": "AUCUN_MESSAGE",
                 "confiance": 1.0,
+                "marge_top1_top2": 1.0,
+                "probabilites_classes": {},
+                "termes_explicatifs": [],
+                "nb_termes_reconnus": 0,
+                "hors_vocabulaire": False,
                 "requiert_revue_humaine": False,
                 "motif_revue": None,
                 "garde_fou_critique": False,
@@ -100,16 +137,33 @@ class ClientMessageClassifier:
         self.ensure_trained()
         probs = self.pipeline.predict_proba([message])[0]
         classes = self.pipeline.classes_
-        best_idx = int(probs.argmax())
+        sorted_indices = probs.argsort()[::-1]
+        best_idx = int(sorted_indices[0])
+        second_idx = int(sorted_indices[1]) if len(sorted_indices) > 1 else best_idx
+
         categorie = str(classes[best_idx])
         confiance = round(float(probs[best_idx]), 3)
+        marge_top1_top2 = round(float(probs[best_idx] - probs[second_idx]), 3)
+        probabilites_classes = {
+            str(cls_name): round(float(p), 3)
+            for cls_name, p in zip(classes, probs)
+        }
+
+        top_terms, nb_known_terms = self._extract_explanation(message, best_idx)
+        hors_vocabulaire = nb_known_terms == 0
 
         critical_triggers = detect_critical_patterns(message)
         garde_fou_critique = len(critical_triggers) > 0
         requiert_revue = False
         motif = None
 
-        if confiance < confidence_threshold:
+        if hors_vocabulaire:
+            requiert_revue = True
+            motif = (
+                "Cas incertain IA : message hors vocabulaire connu "
+                "(0 terme reconnu dans le lexique d'entrainement -> revue humaine obligatoire)"
+            )
+        elif confiance < confidence_threshold:
             requiert_revue = True
             motif = f"Cas incertain IA (confiance {confiance:.0%} < seuil {confidence_threshold:.0%})"
         elif categorie in ("LITIGE", "DEMANDE_ECHEANCIER", "ANNONCE_PAIEMENT"):
@@ -125,6 +179,11 @@ class ClientMessageClassifier:
         return {
             "categorie": categorie,
             "confiance": confiance,
+            "marge_top1_top2": marge_top1_top2,
+            "probabilites_classes": probabilites_classes,
+            "termes_explicatifs": top_terms,
+            "nb_termes_reconnus": nb_known_terms,
+            "hors_vocabulaire": hors_vocabulaire,
             "requiert_revue_humaine": requiert_revue,
             "motif_revue": motif,
             "garde_fou_critique": garde_fou_critique,

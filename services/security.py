@@ -36,9 +36,9 @@ DEMO_TOKENS: Dict[str, Dict[str, str]] = {
 }
 
 DEFAULT_ANONYMOUS_ACTOR: Dict[str, str] = {
-    "username": "GESTIONNAIRE",
-    "role": "ADMIN",
-    "display_name": "Session locale de demonstration",
+    "username": "session.anonyme",
+    "role": "GESTIONNAIRE",
+    "display_name": "Session locale moindre privilege (GESTIONNAIRE)",
 }
 
 
@@ -102,7 +102,7 @@ def resolve_actor_from_token(
 
     with db_session() as conn:
         row = conn.execute("SELECT value FROM settings WHERE key = 'require_auth'").fetchone()
-        require_auth = (row["value"] == "1") if row else False
+        require_auth = (row["value"] == "1") if row else True
 
     if require_auth:
         raise HTTPException(

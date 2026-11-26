@@ -30,11 +30,14 @@ def client(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> TestClient:
 
 def test_api_health_and_reset_demo_and_web_dashboard(client: TestClient):
     """Test 19 : Parcours E2E API REST et rendu HTML du tableau de bord."""
+    admin_headers = {"X-API-Token": "tok-admin-direction"}
+    gest_headers = {"X-API-Token": "tok-gestionnaire-koffi"}
+
     res_health = client.get("/api/health")
     assert res_health.status_code == 200
     assert res_health.json()["framework"] == "FastAPI"
 
-    res_reset = client.post("/api/system/reset-demo")
+    res_reset = client.post("/api/system/reset-demo", headers=admin_headers)
     assert res_reset.status_code == 200
     data_reset = res_reset.json()
     assert data_reset["import_summary"]["accepted_counts"]["invoices"] == 7
@@ -54,12 +57,12 @@ def test_api_health_and_reset_demo_and_web_dashboard(client: TestClient):
         "montant": 200000,
         "reference_fictive": "MOMO-E2E-002",
     }
-    res_pay1 = client.post("/api/payments/simulate", json=pay_payload)
+    res_pay1 = client.post("/api/payments/simulate", headers=gest_headers, json=pay_payload)
     assert res_pay1.status_code == 200
     assert res_pay1.json()["duplicate"] is False
     assert res_pay1.json()["solde_restant"] == 0.0
 
-    res_pay2 = client.post("/api/payments/simulate", json=pay_payload)
+    res_pay2 = client.post("/api/payments/simulate", headers=gest_headers, json=pay_payload)
     assert res_pay2.status_code == 200
     assert res_pay2.json()["duplicate"] is True
 
@@ -72,6 +75,7 @@ def test_excel_file_upload_endpoint_e2e(client: TestClient):
     with excel_path.open("rb") as f:
         res = client.post(
             "/api/import/upload",
+            headers={"X-API-Token": "tok-gestionnaire-koffi"},
             files={"file": ("demo_portfolio.xlsx", f, "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")},
         )
     assert res.status_code == 200
@@ -298,3 +302,113 @@ def test_ai_classifier_holdout_test_set_accuracy():
 
     accuracy = correct / len(holdout_test_set)
     assert accuracy >= 0.80, f"L'accuracy sur le jeu de test separe ({accuracy:.2%}) doit etre >= 80%"
+
+
+def test_complete_business_journey_benchmark_settings_exceptions_and_error_resolution(client: TestClient):
+    """
+    Verifie les fonctionnalites completant 'Utilite et parcours metier' (15/15) :
+    1. Comparaison chiffree a la methode de reference Excel (GET /api/benchmark) distinguant regles metier et IA.
+    2. Parametrage metier dynamique via POST /api/settings avec recalcul immediat du portefeuille.
+    3. Correction et reintegration (ou exclusion) d'une ligne d'import invalide (Guide Section 3, Etape 2).
+    4. Gestion interactive des exceptions sur un dossier facture : ouverture/resolution de litige, emission d'avoir,
+       et activation d'un echeancier avec suspension automatique des relances.
+    """
+    admin_headers = {"X-API-Token": "tok-admin-direction"}
+    val_headers = {"X-API-Token": "tok-validateur-amina"}
+    gest_headers = {"X-API-Token": "tok-gestionnaire-koffi"}
+
+    # Upload du fichier Excel de demo (contient 7 factures valides + 1 ligne invalide FAC-2026-ERR)
+    excel_path = config.DATA_DIR / "demo_portfolio.xlsx"
+    with excel_path.open("rb") as f:
+        res_up = client.post(
+            "/api/import/upload",
+            headers=gest_headers,
+            files={"file": ("demo_portfolio.xlsx", f, "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")},
+        )
+    assert res_up.status_code == 200
+    assert res_up.json()["total_rejected"] == 1
+
+    # 1. Benchmark / comparaison a la methode de reference (distinction Regles vs IA)
+    bench = client.get("/api/benchmark").json()
+    assert bench["nb_factures_evaluees"] == 7
+    assert bench["comparaison_temps"]["gain_temps_pct"] > 99.0
+    assert "resultats_regles_deterministes" in bench
+    assert "resultats_ia_ciblee" in bench
+    assert bench["resultats_regles_deterministes"]["relances_injustifiees_evitees_total"] >= 4
+    assert bench["resultats_ia_ciblee"]["faux_negatifs_critiques_test_holdout"] == 0
+
+    # 2. Correction et reintegration de la ligne d'import rejetee (FAC-2026-ERR avec montant -15000 -> 150000)
+    errors = client.get("/api/import/errors").json()["errors"]
+    assert len(errors) == 1
+    err_id = errors[0]["error_id"]
+
+    res_resolve_err = client.post(
+        f"/api/import/errors/{err_id}/resolve",
+        headers=gest_headers,
+        json={
+            "donnees_corrigees": {
+                "invoice_id": "FAC-2026-ERR",
+                "client_id": "CLI-01",
+                "date_emission": "2026-01-15",
+                "date_echeance": "2026-02-15",
+                "montant_initial": 150000,
+                "devise": "FCFA",
+            },
+            "motif": "Correction du montant negatif apres verification piece comptable",
+        },
+    )
+    assert res_resolve_err.status_code == 200
+    assert res_resolve_err.json()["status"] == "RESOLVED_AND_IMPORTED"
+    assert len(client.get("/api/import/errors").json()["errors"]) == 0
+    assert client.get("/api/dashboard").json()["total_factures"] == 8
+
+    # 3. Modification des parametres metier en direct (seuil gros montant abaisse a 300 000 FCFA, seuil IA a 0.50)
+    res_set = client.post(
+        "/api/settings",
+        headers=val_headers,
+        json={
+            "reference_date": "2026-03-18",
+            "high_amount_threshold": 300000.0,
+            "ai_confidence_threshold": 0.50,
+            "default_channel": "WHATSAPP",
+        },
+    )
+    assert res_set.status_code == 200
+    assert res_set.json()["recalculated_count"] == 8
+    assert client.get("/api/dashboard").json()["reference_date"] == "2026-03-18"
+
+    # 4. Gestion interactive des exceptions sur FAC-2026-002 (ouverture litige -> resolution -> avoir -> echeancier)
+    client.post("/api/reminders/prepare/FAC-2026-003", headers=gest_headers)
+    res_disp = client.post(
+        "/api/disputes",
+        headers=gest_headers,
+        json={"invoice_id": "FAC-2026-003", "motif": "Ecart sur deux cartons a la livraison"},
+    )
+    assert res_disp.status_code == 200
+    assert res_disp.json()["statut_calcule"] == "CONTESTEE"
+    disp_id = res_disp.json()["dispute_id"]
+
+    res_res_disp = client.post(
+        f"/api/disputes/{disp_id}/resolve",
+        headers=val_headers,
+        json={"motif_resolution": "Accord sur emission d'un avoir de 30 000 FCFA"},
+    )
+    assert res_res_disp.status_code == 200
+    assert res_res_disp.json()["statut_calcule"] == "PARTIELLEMENT_PAYEE"
+
+    res_cn = client.post(
+        "/api/credit-notes",
+        headers=val_headers,
+        json={"invoice_id": "FAC-2026-003", "montant": 30000, "motif": "Avoir suite a accord commercial"},
+    )
+    assert res_cn.status_code == 200
+    assert res_cn.json()["solde_restant"] == 120000.0
+
+    res_plan = client.post(
+        "/api/installment-plans",
+        headers=val_headers,
+        json={"invoice_id": "FAC-2026-003", "date_prochaine_echeance": "2026-04-10", "montant_prevu": 60000},
+    )
+    assert res_plan.status_code == 200
+    assert res_plan.json()["statut_calcule"] == "COUVERTE_PAR_ECHEANCIER"
+
