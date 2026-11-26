@@ -7,6 +7,7 @@ from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
 
 import config
+from database.db import init_db
 from models.repositories import (
     get_dashboard_kpis,
     get_invoice_detail,
@@ -14,15 +15,17 @@ from models.repositories import (
     list_import_errors,
     list_invoices,
     list_reminders,
+    list_users,
     reset_and_load_demo_portfolio,
 )
 
 router = APIRouter(tags=["Interface Web"])
-templates = Jinja2Templates(directory=str(config.BASE_DIR / "templates"))
+templates = Jinja2Templates(directory=str(config.BASE_DIR / "frontend" / "templates"))
 
 
 @router.get("/", response_class=HTMLResponse)
 def dashboard_page(request: Request, statut: Optional[str] = None):
+    init_db()
     kpis = get_dashboard_kpis()
     if kpis["total_factures"] == 0:
         reset_and_load_demo_portfolio()
@@ -33,6 +36,7 @@ def dashboard_page(request: Request, statut: Optional[str] = None):
     reminders = list_reminders()
     import_errors = list_import_errors()
     audit_logs = list_audit_logs(limit=40)
+    users = list_users()
 
     return templates.TemplateResponse(
         request=request,
@@ -44,6 +48,7 @@ def dashboard_page(request: Request, statut: Optional[str] = None):
             "reminders": reminders,
             "import_errors": import_errors,
             "audit_logs": audit_logs,
+            "users": users,
             "current_filter": statut,
         },
     )
