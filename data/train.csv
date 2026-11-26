@@ -1,0 +1,251 @@
+id,message,classe,ambigu
+001,"Bonjour, la livraison n'est jamais arrivée mais vous me réclamez les 25000 fcfa",LITIGE,non
+002,"Je ne conteste pas la somme mais le produit reçu était cassé",LITIGE,oui
+003,"Svp j'ai jamais reçu le colis, le livreur a dit qu'il avait appelé. Je n'ai rien vu",LITIGE,non
+004,"Le téléphone que j'ai reçu n'est pas celui que j'ai commandé. Je veux un échange avant de payer",LITIGE,non
+005,"Vous me relancez pour une facture alors que j'ai déjà signalé le problème à votre service client",LITIGE,non
+006,"Non c'est pas moi qui ai commandé ce matelas, je ne paierai pas",LITIGE,non
+007,"Le riz livré pèse 2 kg au lieu de 5, je veux qu'on règle ça avant tout paiement",LITIGE,non
+008,"bjr, la marchandise est arrivée abîmée, je refuse de payer le montant total",LITIGE,non
+009,"Je ne nie pas avoir commandé mais le délai de livraison n'a pas été respecté, ça je conteste",LITIGE,oui
+010,"Vous avez facturé deux fois la même commande, regardez votre relevé svp",LITIGE,non
+011,"Mon momo a été débité 2 fois pour la même facture. Qui va me rembourser ?",LITIGE,non
+012,"La facture indique 45000 fcfa mais on avait convenu de 35000. Je ne suis pas d'accord",LITIGE,non
+013,"Je ne dis pas que je ne dois rien, mais la pénalité de retard est abusive",LITIGE,oui
+014,"Le service après-vente m'a promis un remboursement il y a 3 semaines et rien",LITIGE,non
+015,"Votre livreur a encaissé cash sans me donner de reçu, comment je peux prouver que j'ai payé ?",LITIGE,non
+016,"Le climatiseur ne marche plus depuis 4 jours. Tant que ce n'est pas réparé je paie pas",LITIGE,non
+017,"Vous me réclamez le montant de la garantie alors que le contrat ne le prévoyait pas",LITIGE,non
+018,"Pas d'accord avec la facture, c'est pas le bon montant du tout",LITIGE,non
+019,"Je conteste le retard de 2 mois que vous me comptez, j'ai payé le 3 du mois dernier",LITIGE,non
+020,"Le moteur de la moto est tombé en panne dès la première semaine. Je veux un remplacement",LITIGE,non
+021,"Il manque 3 pièces dans le kit livré, je ne paierai pas tant que ce n'est pas complet",LITIGE,non
+022,"J'ai retourné le colis vendredi, le transporteur doit le confirmer. Ne me relancez pas",LITIGE,non
+023,"Je ne suis pas d'accord avec les frais de livraison ajoutés sans que je les aie validés",LITIGE,non
+024,"Mon fils a commandé sur mon compte, je ne reconnais pas cette dette",LITIGE,non
+025,"Le produit ne correspond pas à la photo sur votre page. C'est une arnaque",LITIGE,non
+026,"Je veux bien payer mais pas le montant de la pénalité, il est trop élevé",LITIGE,oui
+027,"Erreur de montant sur mon reçu, vous avez mis 80000 au lieu de 8000",LITIGE,non
+028,"Il y a un doublon dans votre système, j'ai déjà réglé cette facture en juin",LITIGE,non
+029,"Svp vérifiez votre caisse, je vous ai payé en cash à la boutique le 12",LITIGE,non
+030,"La réparation a duré 3 semaines au lieu de 2 comme convenu. Je demande une réduction",LITIGE,non
+031,"Je ne peux pas valider cette facture, la date de commande n'est pas la bonne",LITIGE,non
+032,"Votre agent m'a dit de ne pas payer avant la visite technique. Pourquoi vous relancez ?",LITIGE,non
+033,"Le transfert est passé mais pas le bon numéro de compte, c'est votre erreur",LITIGE,non
+034,"Le carton était vide à l'ouverture. Je veux un avoir ou un remboursement",LITIGE,non
+035,"Pas question de payer les intérêts, le retard vient de votre côté",LITIGE,non
+036,"Non je ne reconnais pas ce paiement de 15000 fcfa sur mon compte",LITIGE,non
+037,"Je refuse le montant, la commande a été annulée par votre application le 4",LITIGE,non
+038,"Le produit est en panne mais la garantie est encore valide, pourquoi vous voulez être payé ?",LITIGE,non
+039,"Vous me relancez pour une livraison qui était à l'ancienne adresse, c'est pas ma faute",LITIGE,non
+040,"Je ne suis pas responsable du vol du colis, le livreur doit payer",LITIGE,non
+041,"C'est pas normal que la facture soit en retard alors que la commande n'est pas livrée complètement",LITIGE,oui
+042,"Vous m'avez envoyé le mauvais modèle de frigo, je veux le bon avant de payer",LITIGE,non
+043,"Bonsoir, les 2 sacs de ciment sont mouillés, je ne peux pas accepter ça",LITIGE,non
+044,"J'ai un souci avec le produit, on en parle avant de me relancer svp",LITIGE,non
+045,"Ma commande n'a pas été prise en compte donc je ne vois pas pourquoi je paierais",LITIGE,non
+046,"Bjr, je vous ai signalé le souci sur WhatsApp la semaine passée, toujours pas de réponse",LITIGE,non
+047,"Je ne conteste pas avoir reçu le produit, je conteste le prix qui n'est pas celui affiché",LITIGE,oui
+048,"Votre service a bloqué mon compte sans raison, je veux une explication avant tout",LITIGE,non
+049,"Le contrat dit 12 mois mais vous facturez 14, où est l'erreur ?",LITIGE,non
+050,"Ça fait deux fois que le livreur vient et repart. Je ne vais pas payer des frais de déplacement",LITIGE,non
+051,"Je ne veux pas de l'échange, je veux mon argent remboursé sur momo",LITIGE,non
+052,"La moitié de la commande a disparu, les 3 derniers articles sont manquants",LITIGE,non
+053,"Le service client ne répond plus au téléphone depuis lundi. Je ne paie rien tant que ce n'est pas réglé",LITIGE,non
+054,"Franchement cette facture est fausse, je l'ai vérifiée deux fois",LITIGE,non
+055,"Pourquoi vous me facturez le transport alors que le produit était en promo gratuit ?",LITIGE,non
+056,"Mes 50 kg de sucre ont été mal pesés, il en manque au moins 5",LITIGE,non
+057,"Ce n'est pas moi qui ai signé le bon de livraison, la signature est fausse",LITIGE,non
+058,"Je ne peux pas payer cette somme pour un service qui n'a pas marché",LITIGE,non
+059,"Le produit est bien arrivé mais il ne marche pas. Donc pour l'instant je bloque le paiement",LITIGE,non
+060,"Vous vous trompez de client, je n'ai jamais eu de contrat avec votre société",LITIGE,non
+061,"Ok pour la dette mais vous avez compté 3 mois de pénalité alors que j'étais en règle",LITIGE,oui
+062,"Svp arrêtez les appels, la facture est contestée par écrit depuis le 2 novembre",LITIGE,non
+063,"Le technicien a cassé l'écran en réparant, il doit prendre en charge ça",LITIGE,non
+064,"Je conteste le montant débité sur mon compte mobile money, ce n'est pas la bonne somme",LITIGE,non
+065,"La livraison était prévue samedi, on est lundi, je n'ai rien reçu et je ne paie pas",LITIGE,non
+066,"Vous me facturez un article que j'ai rendu la semaine dernière",LITIGE,non
+067,"Pas payé parce que le produit n'est pas conforme à la fiche technique",LITIGE,non
+068,"bjr je conteste la facture de juin, je vous ai envoyé la preuve de paiement",LITIGE,non
+069,"La moto que vous m'avez louée a eu un accident, c'est votre assurance qui doit payer",LITIGE,non
+070,"Je n'accepte pas que vous coupiez le service sans préavis, c'est illégal",LITIGE,non
+071,"Mon avis : le prix est trop cher pour la qualité. Je ne règlerai que la moitié",LITIGE,non
+072,"Vous avez changé les conditions sans me prévenir, je conteste le nouveau tarif",LITIGE,non
+073,"Le produit a été réparé une fois mais se recasse. Je ne peux pas payer une réparation qui ne tient pas",LITIGE,non
+074,"Je ne suis pas d'accord que vous m'appeliez à 22h pour une facture, c'est du harcèlement",LITIGE,non
+075,"Ça ne va pas, le livreur a pris 5000 fcfa en plus pour la course",LITIGE,non
+076,"Non non, la commande est partie chez le mauvais client, c'est pas moi qui l'ai reçue",LITIGE,non
+077,"Votre remise de 10% n'a pas été appliquée sur ma facture, je ne paierai pas le plein tarif",LITIGE,non
+078,"je ne suis pas d accord avec ce montant, mes calculs donnent 18500 pas 28500",LITIGE,non
+079,"Le produit est bien arrivé mais le certificat de garantie manque, je demande à l'avoir avant de payer",LITIGE,non
+080,"Pas de paiement tant que vous n'avez pas résolu le litige sur la commande 4471",LITIGE,non
+081,"Je ne conteste pas être en retard mais le montant de l'avance que vous me comptez est faux",LITIGE,oui
+082,"Svp on m'a livré un produit déjà utilisé, je veux un autre",LITIGE,non
+083,"Le marchand a dit que la livraison était gratuite, la facture dit le contraire",LITIGE,non
+084,"Je conteste la date d'échéance, le contrat dit fin du mois et vous mettez le 10",LITIGE,non
+085,"Le service a été mal exécuté, mon client a porté plainte donc je ne peux pas payer",LITIGE,non
+086,"Il manque la facture originale, impossible de payer sans",LITIGE,non
+087,"Votre application a facturé un abonnement que j'avais résilié en octobre",LITIGE,non
+088,"Tout est faux sur cette relance, même le nom du produit",LITIGE,non
+089,"Le clim a fait du bruit dès l'installation, ça ne peut pas être normal",LITIGE,non
+090,"Je ne reconnais pas la signature sur le reçu de livraison, je veux une enquête",LITIGE,non
+091,"Pourquoi vous m'avez prélevé sans m'avertir ? Je demande remboursement immédiat",LITIGE,non
+092,"Le produit est bien à moi mais la réparation a été faite par un autre technicien, je refuse de payer la garantie",LITIGE,oui
+093,"Bonjour, la somme affichée inclut une TVA que je n'aurais pas dû payer",LITIGE,non
+094,"Votre commande a été livrée à mon voisin, vous m'accusez à tort",LITIGE,non
+095,"Ce montant n'a aucun sens, il faut revoir le dossier avant tout",LITIGE,non
+096,"Ça n'a jamais été convenu comme ça, je ne suis pas d'accord et je n'ai pas signé",LITIGE,non
+097,"J'attends le geste commercial promis par votre conseiller avant de régler",LITIGE,non
+098,"Pas de quoi payer une facture pour un produit que je n'ai pas testé",LITIGE,non
+099,"Je ne nie pas la dette, je demande un audit de votre facturation",LITIGE,oui
+100,"La balance du magasin était fausse, la quantité facturée est gonflée",LITIGE,non
+101,"Bonjour, est-ce possible de payer en 3 fois ce mois-ci ? Je n'ai pas tout le montant",DEMANDE_ECHEANCIER,non
+102,"Svp je peux payer 10000 fcfa maintenant et le reste dans 2 semaines ?",DEMANDE_ECHEANCIER,non
+103,"Bjr, j'ai un problème de liquidité cette semaine, on peut étaler sur 4 mois ?",DEMANDE_ECHEANCIER,non
+104,"Je ne demande pas de réduction, juste un délai pour payer en plusieurs tranches",DEMANDE_ECHEANCIER,oui
+105,"Est-ce que je peux faire un échéancier de 6 mois avec des versements de 15000 par mois ?",DEMANDE_ECHEANCIER,non
+106,"J'ai pas de quoi payer d'un coup, vous acceptez les versements mobile money chaque semaine ?",DEMANDE_ECHEANCIER,non
+107,"Pouvez-vous décaler la prochaine échéance au 25 ? Le salaire tombe après",DEMANDE_ECHEANCIER,non
+108,"Bonsoir, je voudrais négocier un plan de paiement, je peux verser 5000 par semaine",DEMANDE_ECHEANCIER,non
+109,"Kon fè pou mwen peye an 3 fwa? (svp en français ce serait mieux)",DEMANDE_ECHEANCIER,oui
+110,"Mon commerce a eu une baisse de ventes, je propose de régler en 5 petits versements",DEMANDE_ECHEANCIER,non
+111,"Est-ce que vous acceptez que je paie en deux fois, 30 % maintenant et le solde en fin de mois ?",DEMANDE_ECHEANCIER,non
+112,"Svp je veux étaler, je ne peux plus tout payer d'un coup depuis le décès de mon père",DEMANDE_ECHEANCIER,non
+113,"Possible de reporter le paiement de 2 semaines ? J'attends une rentrée d'argent",DEMANDE_ECHEANCIER,non
+114,"Je veux bien régler mais je ne peux pas aujourd'hui, on peut faire un plan ?",DEMANDE_ECHEANCIER,oui
+115,"Est-ce que le plan de paiement est possible sur 12 mois avec intérêts ?",DEMANDE_ECHEANCIER,non
+116,"Je propose de payer 20000 le 5 et 20000 le 20, ça vous va ?",DEMANDE_ECHEANCIER,non
+117,"Vous pouvez me faire un échéancier sur papier ? Je veux bien le signer",DEMANDE_ECHEANCIER,non
+118,"Mon apprenti ne m'a pas payé cette semaine, je suis bloqué. Je demande 2 semaines de délai",DEMANDE_ECHEANCIER,non
+119,"Je peux payer maintenant 8000 fcfa par momo, le reste en 3 mois s'il vous plaît",DEMANDE_ECHEANCIER,non
+120,"Svp pouvez-vous m'accorder un report jusqu'à la fin du mois de décembre ?",DEMANDE_ECHEANCIER,non
+121,"Je ne suis pas en mesure de payer la totalité, est-ce qu'un échelonnement est envisageable ?",DEMANDE_ECHEANCIER,non
+122,"Bjr, je veux régler par tranche de 5000 chaque vendredi jusqu'à solde",DEMANDE_ECHEANCIER,non
+123,"Vous pourriez fractionner ma dette sur les 4 prochaines paies ?",DEMANDE_ECHEANCIER,non
+124,"Pas le choix, je demande un étalement. Je ne peux pas faire autrement",DEMANDE_ECHEANCIER,oui
+125,"Je demande un délai de paiement jusqu'à la récolte, ça tombe en février",DEMANDE_ECHEANCIER,non
+126,"Peut-on mettre en place un prélèvement mensuel sur mon compte mobile money ?",DEMANDE_ECHEANCIER,non
+127,"J'accepte de payer, mais en 2 fois SVP : la moitié fin de semaine, l'autre le mois prochain",DEMANDE_ECHEANCIER,non
+128,"Je suis d'accord pour rembourser mais pas d'un coup, un plan sur 3 mois me conviendrait",DEMANDE_ECHEANCIER,non
+129,"Est-ce qu'il y a une possibilité de payer 5 jours après la date limite ?",DEMANDE_ECHEANCIER,non
+130,"Mon crédit est coincé à la banque, je vous paie fin de semaine avec un petit acompte. Ok ?",DEMANDE_ECHEANCIER,oui
+131,"Pouvez-vous réduire les mensualités à 10000 au lieu de 25000 ?",DEMANDE_ECHEANCIER,non
+132,"Je veux payer le tout mais en plusieurs fois, dites-moi les dates possibles",DEMANDE_ECHEANCIER,non
+133,"Avec la fête de Noël je dois dépenser, je propose de régler en janvier en 2 tranches",DEMANDE_ECHEANCIER,non
+134,"Bonjour, je suis malade et je ne travaille plus ce mois. Est-ce qu'on peut repousser de 3 semaines ?",DEMANDE_ECHEANCIER,non
+135,"Je n'ai pas la somme entière, je peux verser le premier tiers aujourd'hui",DEMANDE_ECHEANCIER,non
+136,"ça vous dit un plan de 4 versements de 7500 ?",DEMANDE_ECHEANCIER,non
+137,"Svp, la dette est lourde pour moi, on peut faire un arrangement sur 6 mois ?",DEMANDE_ECHEANCIER,non
+138,"Je veux bien payer mais en mini-tranches journalières de 1000 fcfa, c'est possible ?",DEMANDE_ECHEANCIER,non
+139,"Pourrais-je avoir un échéancier pour régler mes deux factures séparément ?",DEMANDE_ECHEANCIER,non
+140,"Pas de contestation, je veux juste savoir si je peux payer par versements",DEMANDE_ECHEANCIER,non
+141,"Je n'ai pas encore payé, mais je pense pouvoir verser 15000 dans 10 jours, ça irait ?",DEMANDE_ECHEANCIER,non
+142,"Est-ce que le délai peut passer à 60 jours ? Mon fournisseur paie tard",DEMANDE_ECHEANCIER,non
+143,"Je propose une date de paiement le 15 et de réduire les pénalités si c'est possible",DEMANDE_ECHEANCIER,oui
+144,"Svp un arrangement pour régler en 2 fois, je fais mon possible",DEMANDE_ECHEANCIER,non
+145,"Je veux étaler mon paiement sur les 3 prochains mois, pas plus",DEMANDE_ECHEANCIER,non
+146,"Bjr je peux pas payer toute la somme. Vous acceptez qu'on fasse 3 versements ?",DEMANDE_ECHEANCIER,non
+147,"Est-ce qu'on peut reporter une partie du montant sur la prochaine facture ?",DEMANDE_ECHEANCIER,non
+148,"Je demande un plan sur 8 mois, je vous enverrai les versements par momo",DEMANDE_ECHEANCIER,non
+149,"Votre conseiller m'a parlé d'un échéancier, je veux confirmer les dates",DEMANDE_ECHEANCIER,non
+150,"Pas d'argent ce mois, mais je peux commencer à payer en janvier par petits montants",DEMANDE_ECHEANCIER,non
+151,"C'est bon, je vous envoie le paiement ce soir par momo",ANNONCE_PAIEMENT,non
+152,"Je viens de faire le transfert de 20000 fcfa, vérifiez svp",ANNONCE_PAIEMENT,non
+153,"Ok je passe régler demain à la boutique",ANNONCE_PAIEMENT,non
+154,"Le virement est parti ce matin, référence MM2024 8871",ANNONCE_PAIEMENT,non
+155,"Je paie vendredi, promis, j'ai l'argent de côté",ANNONCE_PAIEMENT,non
+156,"bjr j'ai payé hier via Moov Money, pouvez-vous confirmer ?",ANNONCE_PAIEMENT,non
+157,"Je ne suis pas en retard, je vais payer avant la fin de la semaine",ANNONCE_PAIEMENT,oui
+158,"Svp dès que mon salaire tombe je règle les 30000, c'est pour mardi",ANNONCE_PAIEMENT,non
+159,"Ok je paierai demain matin, n'envoyez plus de message svp",ANNONCE_PAIEMENT,non
+160,"J'ai déjà réglé en cash ce midi à votre agent, il va vous donner le reçu",ANNONCE_PAIEMENT,non
+161,"Je vous paie le reste le 3 du mois prochain, c'est noté",ANNONCE_PAIEMENT,non
+162,"Le montant est parti sur votre numéro MTN, regardez svp",ANNONCE_PAIEMENT,non
+163,"Pas de souci, je paie aujourd'hui après le marché",ANNONCE_PAIEMENT,non
+164,"Ça c'est fait, j'ai envoyé 12500 fcfa tout à l'heure",ANNONCE_PAIEMENT,non
+165,"Je vais régler dans la soirée insha Allah",ANNONCE_PAIEMENT,non
+166,"Virement effectué, pièce jointe la capture d'écran",ANNONCE_PAIEMENT,non
+167,"Je ne vais pas tarder à payer, c'est juste que j'ai eu un imprévu",ANNONCE_PAIEMENT,oui
+168,"Le paiement sera fait lundi, je m'excuse pour le retard",ANNONCE_PAIEMENT,non
+169,"Mon neveu va vous payer la somme cet après-midi au nom de la famille",ANNONCE_PAIEMENT,non
+170,"Je te paie dès que la boutique vend, c'est bon ?",ANNONCE_PAIEMENT,non
+171,"Ok j'ai réglé la moitié, le reste en fin de semaine",ANNONCE_PAIEMENT,non
+172,"Je n'ai pas encore payé mais je le ferai avant 18h aujourd'hui",ANNONCE_PAIEMENT,non
+173,"Paiement fait par carte bancaire ce matin, vérifiez svp",ANNONCE_PAIEMENT,non
+174,"Je pense payer d'ici jeudi si mon client règle sa facture",ANNONCE_PAIEMENT,oui
+175,"Payé ! Momo envoyé à 9h, transaction 7782341",ANNONCE_PAIEMENT,non
+176,"Je vous envoie le reste dans 2 jours, pas besoin de rappeler",ANNONCE_PAIEMENT,non
+177,"Vous aurez le paiement dès que la banque valide le virement",ANNONCE_PAIEMENT,non
+178,"C'est réglé ce matin, merci pour la patience",ANNONCE_PAIEMENT,non
+179,"Je viens juste de faire le versement, il devrait apparaître dans la journée",ANNONCE_PAIEMENT,non
+180,"Svp je paie le 1er, tout est prévu",ANNONCE_PAIEMENT,non
+181,"Pas de problème, je fais le paiement ce soir avant de dormir",ANNONCE_PAIEMENT,non
+182,"Je dois passer à la banque, je paie cet après-midi",ANNONCE_PAIEMENT,non
+183,"Mon grand frère a envoyé l'argent sur votre compte, il doit vous avoir appelé",ANNONCE_PAIEMENT,non
+184,"Ok c'est réglé, vous pouvez clôturer le dossier",ANNONCE_PAIEMENT,non
+185,"J'envoie 15000 demain et le reste à la fin du mois, c'est promis",ANNONCE_PAIEMENT,oui
+186,"Momo envoyé, mais il manque 500 fcfa de frais, c'est normal ?",ANNONCE_PAIEMENT,non
+187,"Dès que je reçois la commission de ma tontine, je vous paie",ANNONCE_PAIEMENT,oui
+188,"Payé en espèces à votre collègue au marché Dantokpa",ANNONCE_PAIEMENT,non
+189,"C'est fait pour la facture de mars, il reste celle d'avril",ANNONCE_PAIEMENT,non
+190,"Je paierai mercredi, mon client a déjà promis",ANNONCE_PAIEMENT,oui
+191,"Je viens de payer 5000 fcfa par Flooz, regardez votre compte",ANNONCE_PAIEMENT,non
+192,"Svp ne m'appelez plus, je règle dimanche",ANNONCE_PAIEMENT,non
+193,"L'argent est en route, le transfert prend quelques heures",ANNONCE_PAIEMENT,non
+194,"Ça va être payé dans la semaine, j'ai eu la confirmation de ma banque",ANNONCE_PAIEMENT,non
+195,"Je paie demain sans faute",ANNONCE_PAIEMENT,non
+196,"Non je ne paie pas aujourd'hui mais demain à la première heure",ANNONCE_PAIEMENT,oui
+197,"Je vous ai transféré l'argent ce matin, notez le numéro de transaction",ANNONCE_PAIEMENT,non
+198,"Le virement de 40000 est validé de mon côté",ANNONCE_PAIEMENT,non
+199,"On va payer la facture de la semaine prochaine, c'est enregistré",ANNONCE_PAIEMENT,non
+200,"Bonne nouvelle, j'ai eu l'argent, je règle tout cet après-midi",ANNONCE_PAIEMENT,non
+201,"Désolé, j'ai oublié de payer hier. Je règle aujourd'hui",RETARD_SIMPLE,non
+202,"Bonjour, je suis en retard de quelques jours, pardon",RETARD_SIMPLE,non
+203,"Oups, le paiement est en retard, le téléphone était éteint",RETARD_SIMPLE,non
+204,"bjr désolé pour le retard, je règle dans la journée",RETARD_SIMPLE,non
+205,"J'ai pas vu la notif, je paie dès que possible",RETARD_SIMPLE,non
+206,"Excusez-moi, j'ai été pris par le travail, je vous règle demain",RETARD_SIMPLE,non
+207,"Je suis en retard, pas grave, je rattrape la semaine prochaine",RETARD_SIMPLE,non
+208,"Désolé j'ai oublié, mon momo était plein. Je fais ça ce soir",RETARD_SIMPLE,non
+209,"Pardon pour le retard de paiement, la fête de famille m'a pris toute la semaine",RETARD_SIMPLE,non
+210,"Je ne vais pas le nier, j'ai oublié. Je suis désolé",RETARD_SIMPLE,oui
+211,"Oups j'ai mis la date dans mon agenda mais pas le paiement",RETARD_SIMPLE,non
+212,"Sorry c'est encore moi, le paiement sera fait en fin de journée",RETARD_SIMPLE,non
+213,"J'ai pas pu passer à la boutique, je m'excuse, je paie samedi",RETARD_SIMPLE,non
+214,"Désolé, la facture est toujours dans ma boîte mail, je ne l'ai pas payée",RETARD_SIMPLE,non
+215,"Bonjour, je m'en veux, le retard est de ma faute, je règle très vite",RETARD_SIMPLE,non
+216,"Svp excusez-moi, j'ai été hospitalisé 2 jours, je n'ai pas pu payer",RETARD_SIMPLE,oui
+217,"Retard de 3 jours, je vous paie dès mon retour au bureau",RETARD_SIMPLE,non
+218,"Mon téléphone a été volé la semaine dernière, je n'ai pas vu vos rappels",RETARD_SIMPLE,non
+219,"bjr désolé, on a eu une panne d'électricité, je paie cet après-midi",RETARD_SIMPLE,non
+220,"J'ai oublié le jour de paiement, pardon je m'organise",RETARD_SIMPLE,non
+221,"Je suis en retard mais c'est temporaire, j'ai un petit souci",RETARD_SIMPLE,oui
+222,"Désolé pour le retard, je vous envoie ça dans l'heure",RETARD_SIMPLE,non
+223,"Oui je sais que c'est en retard, je suis désolé, la semaine a été dure",RETARD_SIMPLE,non
+224,"Retard involontaire, je m'excuse, le paiement est en cours",RETARD_SIMPLE,non
+225,"Pardon, j'ai confondu les dates, je paie lundi",RETARD_SIMPLE,non
+226,"Bjr, l'échéance était hier, je suis en retard de 24h, je règle ce soir",RETARD_SIMPLE,non
+227,"Désolé, mon compte momo était bloqué, c'est réglé maintenant",RETARD_SIMPLE,non
+228,"Je ne savais pas que la date limite était aujourd'hui, pardon",RETARD_SIMPLE,non
+229,"Oups j'ai reçu votre message trop tard, je paie demain",RETARD_SIMPLE,non
+230,"Désolé pour le retard, les vacances de fin d'année m'ont fait oublier",RETARD_SIMPLE,non
+231,"Je m'excuse, le paiement ne s'est pas fait à cause du réseau hier",RETARD_SIMPLE,non
+232,"Pardon j'ai oublié de passer au guichet, je viens demain",RETARD_SIMPLE,non
+233,"Retard d'une semaine, je n'avais pas l'argent, mais je vais régulariser",RETARD_SIMPLE,oui
+234,"Désolé pour cette erreur, je paie dès que j'ai vu le message",RETARD_SIMPLE,non
+235,"J'ai oublié, c'est de ma faute, je paie dans la soirée",RETARD_SIMPLE,non
+236,"Désolé bjr, j'ai été débordé avec les clients, je règle demain",RETARD_SIMPLE,non
+237,"Ce mois j'ai été en retard, c'est la première fois, désolé",RETARD_SIMPLE,non
+238,"Pardon pour le retard, je m'arrange pour payer cette semaine",RETARD_SIMPLE,non
+239,"Je m'excuse, le décalage vient de mon oubli, je règle aujourd'hui",RETARD_SIMPLE,non
+240,"Désolé j'ai pas vu les messages, je paie dès que je finis mon service",RETARD_SIMPLE,non
+241,"Oups, j'ai mal lu la date, je suis en retard de quelques jours",RETARD_SIMPLE,non
+242,"Excuse-moi, la fin de mois est toujours difficile, je paie bientôt",RETARD_SIMPLE,oui
+243,"bjr je suis en retard d'une journée, désolé, je fais le virement",RETARD_SIMPLE,non
+244,"Désolé, l'argent est bloqué chez mon fournisseur, je paie dès qu'il me paie",RETARD_SIMPLE,oui
+245,"Pardon je suis en retard, la carte SIM a été changée et j'ai perdu les notifs",RETARD_SIMPLE,non
+246,"J'ai pas payé à temps, je suis désolé, je règle cet après-midi",RETARD_SIMPLE,non
+247,"Oups pardon, la date est passée, je vous paie tout de suite",RETARD_SIMPLE,non
+248,"Excusez le retard, j'étais en déplacement à Parakou",RETARD_SIMPLE,non
+249,"Désolé, je m'organise pour être à jour la semaine prochaine",RETARD_SIMPLE,non
+250,"Je ne l'ai pas fait exprès, le paiement arrive dans la journée",RETARD_SIMPLE,non

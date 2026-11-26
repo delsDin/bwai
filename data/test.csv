@@ -1,0 +1,101 @@
+id,message,classe,ambigu
+T001,"Le tailleur a livré une robe trop serrée alors que j'ai donné mes mesures exactes, je ne règle pas les 22500 tant qu'il ne reprend pas le travail",LITIGE,non
+T002,"Votre traiteur a oublié 12 plats sur les 80 commandés pour la cérémonie de samedi. Vous voulez être payé en entier ?",LITIGE,non
+T003,"La course Yango annulée par le chauffeur a quand même été facturée sur mon compte. Corrigez ça",LITIGE,non
+T004,"Mon pharmacien m'a remis un flacon périmé depuis mars. Je refuse la facture de 9750 et je veux le remboursement du produit",LITIGE,non
+T005,"Ce n'est pas le montant de l'écolage prévu dans le contrat d'inscription de mon fils, vous avez ajouté les frais de cantine sans accord",LITIGE,non
+T006,"Je ne vous doit pas les frais de réparation du frigo, il était déjà en panne quand le technicien est venu",LITIGE,non
+T007,"Le moteur remplacé par votre garage fait le même bruit qu'avant, la facture de 64000 n'a rien résolu",LITIGE,non
+T008,"Merci de noter que je ne reconnais pas la créance de 4800 fcfa, ni la date de la prestation indiquée",LITIGE,non
+T009,"Je n'ai jamais donné mon accord pour la prolongation automatique de mon abonnement internet, c'est une erreur",LITIGE,non
+T010,"Les 15 sacs de ciment livrés sur le chantier sont en partie durcis. Je paierai après inspection par un expert",LITIGE,non
+T011,"Je comprends que la somme est due mais je conteste la pénalité de 18000 car la livraison était en retard de leur côté",LITIGE,oui
+T012,"Votre agent SBEE a estimé ma consommation à 2x mon vrai niveau ce trimestre, je veux un relevé contrôlé avant de payer",LITIGE,non
+T013,"Bonjour, la facture de location de la salle n'a pas été honorée par le propriétaire donc je ne vois pas pourquoi je dois payer",LITIGE,non
+T014,"Je conteste le montant de 33000 facturé pour un service de maintenance qui n'a jamais été réalisé sur mon site",LITIGE,non
+T015,"Pas payable tant que la quincaillerie n'a pas remplacé le lot de tuyaux défectueux, 3 sur 10 fuient",LITIGE,non
+T016,"Il y a erreur sur votre tableau, je ne suis pas en retard de 90 jours comme vous l'écrivez",LITIGE,non
+T017,"Le colis n'est pas le bon : j'ai reçu des chaussures pointure 42 au lieu de 40. Je refuse de régler tant qu'on n'échange pas",LITIGE,non
+T018,"Je ne nie pas avoir reçu les marchandises, mais le prix facturé ne correspond pas au devis signé en août",LITIGE,oui
+T019,"Ça fait trois fois qu'on me demande le même paiement de 54000 pour la même facture, vous êtes en train de doubler mes factures",LITIGE,non
+T020,"La formation promise par votre cabinet n'a jamais eu lieu. Je conteste la totalité des frais versés",LITIGE,non
+T021,"Votre dépanneur a endommagé le pare-chocs en tractant ma voiture, c'est à vous de payer la réparation avant que je règle",LITIGE,non
+T022,"Non, je n'ai pas accepté les nouvelles conditions de votre plateforme, donc la pénalité de 6300 ne s'applique pas",LITIGE,non
+T023,"Bjr je suis pas d'accord, vous avez mis la mauvaise adresse de livraison et le colis est revenu, les frais de retour sont pas à ma charge",LITIGE,non
+T024,"Le lot de matériel reçu contient un appareil de mesure déjà utilisé, je demande une reprise avant tout paiement",LITIGE,non
+T025,"Pourriez-vous accepter un règlement en quatre fois sur la période de janvier à avril ? Mes revenus sont saisonniers",DEMANDE_ECHEANCIER,non
+T026,"Je ne peux pas régler la somme de 41000 en une seule fois. Est-ce qu'on peut découper en versements de 10000 ?",DEMANDE_ECHEANCIER,non
+T027,"Bonjour Madame, serait-il envisageable de convenir d'un calendrier de remboursement sur 5 mois, avec un premier versement le 8 ?",DEMANDE_ECHEANCIER,non
+T028,"Les frais de scolarité sont trop lourds ce trimestre. Je souhaite échelonner en deux paiements, un en décembre et un en février",DEMANDE_ECHEANCIER,non
+T029,"J'ai perdu mon emploi le mois dernier. Je n'ai pas de quoi payer maintenant, mais je peux verser 3000 par semaine",DEMANDE_ECHEANCIER,non
+T030,"Svp accordez-moi un délai de grâce de trois semaines, mes clients ne m'ont pas encore réglé",DEMANDE_ECHEANCIER,non
+T031,"Est-il possible d'associer le remboursement à ma prochaine livraison de marchandises ? Je peux vous donner 20 pour cent maintenant",DEMANDE_ECHEANCIER,oui
+T032,"Nous souhaitons régler la facture en trois mensualités à partir du 15 du mois prochain, merci de confirmer",DEMANDE_ECHEANCIER,non
+T033,"Je ne vous conteste rien, mais je ne peux pas tout payer d'un coup. Un plan sur 6 mois me conviendrait",DEMANDE_ECHEANCIER,oui
+T034,"Mon mari est hospitalisé, nos dépenses explosent. Pouvez-vous lisser la dette sur plusieurs mois ?",DEMANDE_ECHEANCIER,non
+T035,"Je propose de solder ma dette en six versements mensuels de 7800 fcfa via Flooz, dites-moi si c'est acceptable",DEMANDE_ECHEANCIER,non
+T036,"Le loyer de la boutique est tombé en même temps que la facture. Je demande un étalement de la facture sur deux mois",DEMANDE_ECHEANCIER,non
+T037,"Possible de décaler le paiement au 30 et de le répartir en deux parts égales ?",DEMANDE_ECHEANCIER,non
+T038,"Je veux régulariser ma situation progressivement, est-ce qu'un échéancier mensuel de 5500 vous convient ?",DEMANDE_ECHEANCIER,non
+T039,"Vu la situation, je sollicite un plan de règlement, même si ça prend un an. Je paierai ce que je peux",DEMANDE_ECHEANCIER,non
+T040,"Je n'ai pas la somme complète à la date prévue. Je vous propose de payer la moitié le 10 et le reste fin du trimestre",DEMANDE_ECHEANCIER,non
+T041,"Pouvez-vous me faire un plan de remboursement pour la location du véhicule ? Je ne peux pas faire le total cette semaine",DEMANDE_ECHEANCIER,non
+T042,"Je voudrais savoir si je peux payer 2500 fcfa par jour jusqu'à apurement, ça me permettrait de tenir mon budget",DEMANDE_ECHEANCIER,non
+T043,"Ma coopérative paie les agriculteurs en fin de campagne. Je demande un report jusqu'à mi-mars",DEMANDE_ECHEANCIER,non
+T044,"Bonsoir, pas question de payer en une fois, mais je veux bien signer un échéancier avec pénalités réduites",DEMANDE_ECHEANCIER,oui
+T045,"Je propose 12 versements de 4200 fcfa, à régler par Moov Money le premier de chaque mois",DEMANDE_ECHEANCIER,non
+T046,"Ma dette de 27000 pourrait-elle être répartie sur les paies de mes deux employés ? Je m'en occupe avec eux",DEMANDE_ECHEANCIER,oui
+T047,"Très difficile en ce moment, je demande s'il existe une possibilité de paiement échelonné sans frais",DEMANDE_ECHEANCIER,non
+T048,"Je ne peux verser que 1000 fcfa aujourd'hui, donc on fait un plan de règlement avec des montants plus élevés en fin de mois ?",DEMANDE_ECHEANCIER,non
+T049,"Serait-il possible de transformer mon impayé en mensualités pendant la période des fêtes ?",DEMANDE_ECHEANCIER,non
+T050,"J'aimerais payer en trois tranches égales, je vous envoie la première dès demain si vous confirmez",DEMANDE_ECHEANCIER,non
+T051,"Le virement est fait depuis ma banque ce matin, je vous envoie la capture dès que possible",ANNONCE_PAIEMENT,non
+T052,"Je règle la totalité de 58000 vendredi, mon frère me prête la somme manquante",ANNONCE_PAIEMENT,non
+T053,"Vous aurez le versement ce soir, j'ai demandé à ma caisse de le libérer",ANNONCE_PAIEMENT,non
+T054,"Pour la facture de 16200, j'ai fait la transaction Moov tout à l'heure, la référence est MV 55 2291",ANNONCE_PAIEMENT,non
+T055,"Ne vous inquiétez pas, je passe au cabinet demain avant midi avec le chèque",ANNONCE_PAIEMENT,non
+T056,"Mon client m'a viré l'argent hier soir, je vous règle donc aujourd'hui pour la facture de 8900",ANNONCE_PAIEMENT,non
+T057,"J'ai réglé le premier tiers hier, le second est prévu pour le 20",ANNONCE_PAIEMENT,non
+T058,"Le paiement est programmé pour mardi via mon application bancaire, c'est validé de mon côté",ANNONCE_PAIEMENT,non
+T059,"Je peux vous confirmer que le règlement de 3500 fcfa est en cours de traitement chez MTN",ANNONCE_PAIEMENT,non
+T060,"Je ne vais pas tarder à régulariser, mon pharmacien doit encore me verser sa part",ANNONCE_PAIEMENT,oui
+T061,"Reçu, je m'occupe du paiement de la facture 2024-118 ce week-end",ANNONCE_PAIEMENT,non
+T062,"Je viens d'envoyer les 23750 par Flooz, merci de vérifier et de me confirmer la réception",ANNONCE_PAIEMENT,non
+T063,"Le chèque est signé, il part avec mon chauffeur cet après-midi",ANNONCE_PAIEMENT,non
+T064,"Pour ce mois, je règle le solde de 11400 la semaine prochaine, c'est acté",ANNONCE_PAIEMENT,non
+T065,"Mon fils est allé payer à votre agence de Cotonou, il a dû récupérer un reçu",ANNONCE_PAIEMENT,non
+T066,"Ça y est, la somme de 72000 a été débitée sur mon compte ce matin",ANNONCE_PAIEMENT,non
+T067,"Je n'ai pas encore réglé, mais j'ai reçu le paiement de mon client, je fais le virement ce soir",ANNONCE_PAIEMENT,non
+T068,"Le versement de 9000 est fait, je vous envoie le numéro de transaction pour que vous puissiez le lier",ANNONCE_PAIEMENT,non
+T069,"Ok pour la date du 5, je vous confirme que l'argent sera disponible ce jour-là",ANNONCE_PAIEMENT,non
+T070,"Votre agence a bien reçu mon règlement de 5600 fcfa en espèces ce midi ?",ANNONCE_PAIEMENT,non
+T071,"Dès que la vente de la moto est conclue je vous règle, ça devrait être cette semaine",ANNONCE_PAIEMENT,oui
+T072,"Le paiement de la dernière échéance a été effectué hier, vous avez dû le recevoir",ANNONCE_PAIEMENT,non
+T073,"Je vous règle le montant de 42000 avant la fin du mois, mon associé a déjà accepté le virement",ANNONCE_PAIEMENT,non
+T074,"Notre comptable a lancé le virement de 19800, il devrait arriver d'ici demain",ANNONCE_PAIEMENT,non
+T075,"Je paierai à la prochaine réunion de la tontine, c'est dans trois jours",ANNONCE_PAIEMENT,oui
+T076,"Transfert effectué ce soir sur votre numéro d'entreprise, merci de bien regarder",ANNONCE_PAIEMENT,non
+T077,"Pas de souci pour la relance, la somme de 13000 sort de mon compte demain matin",ANNONCE_PAIEMENT,non
+T078,"Le virement bancaire est passé à 17h, vous pouvez vérifier sur votre relevé",ANNONCE_PAIEMENT,non
+T079,"Je vais régler en espèces lors de ma prochaine visite à la boutique, c'est dans deux jours",ANNONCE_PAIEMENT,non
+T080,"Soldé cette semaine, la facture de 30500 est réglée à 100 pour cent",ANNONCE_PAIEMENT,non
+T081,"Je vous paie avant la fin de la journée, la transaction est en cours sur mon téléphone",ANNONCE_PAIEMENT,non
+T082,"Mon employeur a déjà versé les fonds, je finalise le paiement ce midi",ANNONCE_PAIEMENT,non
+T083,"Bonjour, je m'excuse, la date m'a échappé avec les examens de mes enfants, je règle dans les jours qui viennent",RETARD_SIMPLE,non
+T084,"Désolé, le paiement de 21000 est en retard de deux semaines, j'ai eu un déplacement imprévu",RETARD_SIMPLE,non
+T085,"Excusez-moi pour ce retard, j'ai été hospitalisé pendant une semaine, je règle dès que je peux",RETARD_SIMPLE,oui
+T086,"Je n'ai pas réglé à temps, c'est ma faute, je m'organise pour être à jour lundi",RETARD_SIMPLE,non
+T087,"Retard de paiement noté, mon téléphone était en réparation, je paie cet après-midi",RETARD_SIMPLE,non
+T088,"Je suis désolé, j'ai oublié d'approvisionner mon compte mobile money, je fais le versement ce soir",RETARD_SIMPLE,non
+T089,"Pardon, les factures se sont accumulées et celle-ci est passée à la trappe, je vous règle bientôt",RETARD_SIMPLE,non
+T090,"Désolé pour le délai, la fête de l'indépendance nous a décalés, je paie la semaine prochaine",RETARD_SIMPLE,non
+T091,"Retard de 5 jours, je vous prie de m'excuser, le paiement est lancé",RETARD_SIMPLE,non
+T092,"J'ai reçu votre rappel trop tard, je vous rejoins au bureau demain et je paie tout de suite",RETARD_SIMPLE,non
+T093,"Mes excuses, un souci d'accès à mon compte bancaire, c'est débloqué, je règle cette semaine",RETARD_SIMPLE,non
+T094,"Désolé, la facture était dans le mauvais dossier, je viens de la retrouver, je paie ce soir",RETARD_SIMPLE,non
+T095,"Oups, on a oublié de vous faire le paiement en fin de mois, pardon, c'est réglé dans l'heure",RETARD_SIMPLE,non
+T096,"Veuillez m'excuser pour ce retard, la situation a été difficile au marché cette semaine",RETARD_SIMPLE,oui
+T097,"Je m'excuse du retard, j'ai été malade quelques jours, je reprends et je règle",RETARD_SIMPLE,non
+T098,"Bjr, retard involontaire, mon client a tardé, je paie dès qu'il me règle",RETARD_SIMPLE,oui
+T099,"Désolé, j'étais injoignable pendant le déplacement à Abomey, je fais le paiement dès mon retour",RETARD_SIMPLE,non
+T100,"Pardon pour le retard, on se rattrape vendredi, c'est promis",RETARD_SIMPLE,non
