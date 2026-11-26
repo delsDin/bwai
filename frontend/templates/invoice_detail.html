@@ -1,0 +1,154 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Dossier Facture {{ detail.invoice.invoice_id }} — BWAI 2026</title>
+    <link rel="stylesheet" href="/static/css/app.css">
+</head>
+<body class="detail">
+<a class="skip-link" href="#main-content">Aller au contenu</a>
+
+<header class="topbar">
+    <div class="topbar-inner">
+        <a class="brand" href="/" aria-label="BWAI, retour au portefeuille">
+            <span class="brand-mark" aria-hidden="true">BW<i></i></span>
+            <span><strong class="brand-title">BWAI 2026</strong><span class="brand-subtitle">Recouvrement client</span></span>
+        </a>
+        <a href="/" class="btn btn-outline btn-sm">&larr; Retour au portefeuille</a>
+    </div>
+</header>
+
+<main class="page-shell detail-shell" id="main-content">
+    <section class="hero" aria-labelledby="invoice-title">
+        <div class="hero-copy">
+            <p class="hero-context">Dossier de créance</p>
+            <h1 id="invoice-title">Facture {{ detail.invoice.invoice_id }}</h1>
+            <p class="hero-description">{{ detail.invoice.nom_affiche }} · {{ detail.invoice.canal_prefere }} · {{ detail.invoice.contact_masque }}</p>
+        </div>
+        <div class="hero-visual" aria-hidden="true"><i></i><i></i><i></i><i></i></div>
+    </section>
+    <section class="kpi-grid" aria-label="Synthèse de la facture">
+        <div class="kpi-card">
+            <span class="kpi-label">Montant Initial</span>
+            <span class="kpi-number">{{ "{:,.0f}".format(detail.invoice.montant_initial).replace(",", " ") }} {{ detail.invoice.devise }}</span>
+            <span class="kpi-foot">Émise le {{ detail.invoice.date_emission }} · Échéance {{ detail.invoice.date_echeance }}</span>
+        </div>
+        <div class="kpi-card">
+            <span class="kpi-label">Solde Restant Vérifié</span>
+            <span class="kpi-number {% if detail.invoice.solde_restant > 0 %}is-danger{% else %}is-success{% endif %}">
+                {{ "{:,.0f}".format(detail.invoice.solde_restant).replace(",", " ") }} {{ detail.invoice.devise }}
+            </span>
+            <span class="kpi-foot">Payé : {{ "{:,.0f}".format(detail.invoice.total_paye).replace(",", " ") }} · Avoirs : {{ "{:,.0f}".format(detail.invoice.total_avoirs).replace(",", " ") }}</span>
+        </div>
+        <div class="kpi-card">
+            <span class="kpi-label">Statut &amp; Retard</span>
+            <div style="margin-top:0.25rem;">
+                <span class="badge badge-{{ detail.invoice.statut_calcule }}">{{ detail.invoice.statut_calcule|replace('_', ' ')|capitalize }}</span>
+            </div>
+            <span class="kpi-foot">{{ detail.invoice.jours_retard }} jour(s) de retard</span>
+        </div>
+        <div class="kpi-card">
+            <span class="kpi-label">Priorité Explicable</span>
+            <span class="kpi-number">{{ "%.3f"|format(detail.invoice.score_priorite) }}</span>
+            <span class="kpi-foot">{{ detail.invoice.explication_score }}</span>
+        </div>
+    </section>
+
+    {% if detail.invoice.dernier_message_client %}
+    <div class="panel-card" style="margin-block-end:1.25rem;">
+        <h2 class="panel-title">Qualification IA du Dernier Message Client</h2>
+        <p style="margin:0.5rem 0; font-style:italic; color:var(--text-secondary);">« {{ detail.invoice.dernier_message_client }} »</p>
+        <div style="display:flex; gap:0.5rem; align-items:center; flex-wrap:wrap;">
+            <span class="badge badge-CONTESTEE">Catégorie IA : {{ detail.invoice.ai_categorie }}</span>
+            <span class="pill-meta">Confiance : {{ "%.1f"|format((detail.invoice.ai_confiance or 0) * 100) }}%</span>
+        </div>
+    </div>
+    {% endif %}
+
+    <div class="lab-grid">
+        <div class="panel-card">
+            <h2 class="panel-title" style="margin-block-end:0.75rem;">Paiements Imputés ({{ detail.payments|length }})</h2>
+            {% if detail.payments %}
+            <div class="table-wrapper" tabindex="0" role="region" aria-label="Paiements imputés">
+            <table>
+                <thead>
+                    <tr><th>ID</th><th>Date</th><th>Montant</th><th>Référence Fictive</th><th>Source</th></tr>
+                </thead>
+                <tbody>
+                    {% for p in detail.payments %}
+                    <tr>
+                        <th>{{ p.payment_id }}</th>
+                        <td>{{ p.date_paiement }}</td>
+                        <td><strong>{{ "{:,.0f}".format(p.montant).replace(",", " ") }} FCFA</strong></td>
+                        <td><code class="code-hash">{{ p.reference_fictive }}</code></td>
+                        <td><span class="pill-meta">{{ p.source }}</span></td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+            </div>
+            {% else %}
+            <p style="color:var(--text-muted); font-size:0.84rem;">Aucun règlement enregistré sur cette facture.</p>
+            {% endif %}
+        </div>
+
+        <div class="panel-card">
+            <h2 class="panel-title" style="margin-block-end:0.75rem;">Avoirs, Échéanciers &amp; Litiges</h2>
+            {% if detail.credit_notes %}
+            <p style="font-size:0.84rem; margin:0.35rem 0;"><strong>Avoirs :</strong>
+                {% for cn in detail.credit_notes %}
+                {{ cn.credit_note_id }} ({{ "{:,.0f}".format(cn.montant).replace(",", " ") }} FCFA — {{ cn.motif }})
+                {% endfor %}
+            </p>
+            {% endif %}
+            {% if detail.installment_plans %}
+            <p style="font-size:0.84rem; margin:0.35rem 0;"><strong>Échéanciers :</strong>
+                {% for pl in detail.installment_plans %}
+                {{ pl.plan_id }} (Prochaine échéance : {{ pl.date_prochaine_echeance }} · {{ "{:,.0f}".format(pl.montant_prevu).replace(",", " ") }} FCFA · {{ pl.statut }})
+                {% endfor %}
+            </p>
+            {% endif %}
+            {% if detail.disputes %}
+            <p style="font-size:0.84rem; margin:0.35rem 0;"><strong>Litiges :</strong>
+                {% for d in detail.disputes %}
+                <span class="badge badge-CONTESTEE">{{ d.dispute_id }} ({{ d.statut }})</span> {{ d.motif }} (ouvert le {{ d.date_ouverture }})
+                {% endfor %}
+            </p>
+            {% endif %}
+            {% if not detail.credit_notes and not detail.installment_plans and not detail.disputes %}
+            <p style="color:var(--text-muted); font-size:0.84rem;">Aucun avoir, échéancier ou litige rattaché.</p>
+            {% endif %}
+        </div>
+    </div>
+
+    <div class="panel-card">
+        <h2 class="panel-title" style="margin-block-end:0.75rem;">Historique des Relances ({{ detail.reminders|length }})</h2>
+        {% if detail.reminders %}
+        <div class="table-wrapper" tabindex="0" role="region" aria-label="Historique des relances">
+            <table>
+            <thead>
+                <tr><th>ID Relance</th><th>Niveau</th><th>Canal</th><th>Statut</th><th>Créé / Validé</th><th>Message</th></tr>
+            </thead>
+            <tbody>
+                {% for r in detail.reminders %}
+                <tr>
+                    <th>{{ r.reminder_id }}</th>
+                    <td>{{ r.niveau_relance }}</td>
+                    <td>{{ r.canal }}</td>
+                    <td><span class="badge badge-{{ r.statut_action }}">{{ r.statut_action|replace('_', ' ')|capitalize }}</span></td>
+                    <td><small>{{ r.cree_par or 'SYSTEME' }} / {{ r.valide_par or '—' }}</small></td>
+                    <td><small style="color:var(--text-secondary);">{{ r.contenu_message }}</small></td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+            </div>
+        {% else %}
+        <p style="color:var(--text-muted); font-size:0.84rem;">Aucune relance préparée pour cette facture.</p>
+        {% endif %}
+    </div>
+</main>
+
+</body>
+</html>

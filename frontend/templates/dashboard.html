@@ -1,0 +1,556 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>BWAI 2026 — Recouvrement Client Intelligent & Explicable</title>
+    <link rel="stylesheet" href="/static/css/app.css">
+</head>
+<body class="dashboard">
+<a class="skip-link" href="#main-content">Aller au contenu</a>
+
+<header class="topbar">
+    <div class="topbar-inner">
+        <a class="brand" href="/" aria-label="BWAI, retour au portefeuille">
+            <span class="brand-mark" aria-hidden="true">BW<i></i></span>
+            <span><strong class="brand-title">BWAI 2026</strong><span class="brand-subtitle">Recouvrement client</span></span>
+        </a>
+        <div class="topbar-controls">
+            <div class="role-selector-wrap">
+                <label for="operator-role-select">Opérateur</label>
+                <select id="operator-role-select" class="role-select">
+                    <option value="tok-admin-direction">Direction (ADMIN)</option>
+                    <option value="tok-validateur-amina">Amina (VALIDATEUR 1)</option>
+                    <option value="tok-validateur-boris">Boris (VALIDATEUR 2 — 4 yeux)</option>
+                    <option value="tok-gestionnaire-koffi">Koffi (GESTIONNAIRE)</option>
+                </select>
+            </div>
+
+            {% if kpis.emergency_stop %}
+            <button type="button" class="btn btn-success btn-sm" onclick="toggleEmergencyStop(false)">
+                Lever l’arrêt d’urgence
+            </button>
+            {% else %}
+            <button type="button" class="btn btn-danger btn-sm" onclick="toggleEmergencyStop(true)">
+                Arrêt d’urgence
+            </button>
+            {% endif %}
+
+            <a href="/docs" target="_blank" rel="noopener" class="btn btn-text btn-sm">Documentation API</a>
+        </div>
+    </div>
+</header>
+
+{% if kpis.emergency_stop %}
+<div class="emergency-banner" role="alert">
+    <span>MODE ARRÊT D'URGENCE ACTIF — Toutes les simulations d'envoi de relances sont verrouillées. La file de travail reste préservée.</span>
+    <button type="button" class="btn btn-outline btn-sm" onclick="toggleEmergencyStop(false)">Déverrouiller (ADMIN)</button>
+</div>
+{% endif %}
+
+<main class="page-shell" id="main-content">
+    <section class="hero" aria-labelledby="dashboard-title">
+        <div class="hero-copy">
+            <p class="hero-context">Tableau de bord</p>
+            <h1 id="dashboard-title">Portefeuille de créances</h1>
+            <p class="hero-description">Suivez les encours, priorisez les dossiers et pilotez les relances.</p>
+        </div>
+        <div class="hero-visual" aria-hidden="true"><i></i><i></i><i></i><i></i></div>
+        <div class="hero-meta">
+            <div><span>Date de référence</span><strong>{{ kpis.reference_date }}</strong></div>
+            <div><span>Seuil de revue humaine</span><strong>{{ "{:,.0f}".format(kpis.high_amount_threshold).replace(",", " ") }} FCFA</strong></div>
+        </div>
+    </section>
+    <!-- Barre d'actions principales -->
+    <div class="action-toolbar">
+        <div class="action-group">
+            <button type="button" class="btn btn-primary" onclick="callApiAction('/api/reminders/prepare-all')">
+                <span class="action-icon" aria-hidden="true">+</span>
+                Préparer les relances
+            </button>
+            <button type="button" class="btn btn-outline" onclick="callApiAction('/api/system/recover')">
+                Reprise hors ligne
+            </button>
+            <button type="button" class="btn btn-outline" onclick="callApiAction('/api/recalculate')">
+                Recalculer les scores
+            </button>
+        </div>
+        <div class="action-group">
+            <button type="button" class="btn btn-outline" onclick="callApiAction('/api/system/reset-demo')">
+                Réinitialiser la démo
+            </button>
+        </div>
+    </div>
+
+    <!-- Cartes KPIs -->
+    <section class="kpi-grid" aria-label="Indicateurs financiers du portefeuille">
+        <div class="kpi-card">
+            <span class="kpi-icon wallet" aria-hidden="true"></span>
+            <span class="kpi-label">Encours restant</span>
+            <span class="kpi-number">{{ "{:,.0f}".format(kpis.encours_total).replace(",", " ") }} FCFA</span>
+            <span class="kpi-foot">{{ kpis.total_factures }} factures suivies ({{ kpis.nb_factures_soldees }} soldée(s))</span>
+        </div>
+        <div class="kpi-card">
+            <span class="kpi-icon clock" aria-hidden="true"></span>
+            <span class="kpi-label">Créances échues</span>
+            <span class="kpi-number is-danger">{{ "{:,.0f}".format(kpis.total_en_retard).replace(",", " ") }} FCFA</span>
+            <span class="kpi-foot">{{ kpis.nb_factures_echues }} facture(s) échue(s) à relancer</span>
+        </div>
+        <div class="kpi-card">
+            <span class="kpi-icon review" aria-hidden="true"></span>
+            <span class="kpi-label">Revue humaine</span>
+            <span class="kpi-number is-warning">{{ kpis.nb_en_revue_humaine }} dossier(s)</span>
+            <span class="kpi-foot">Litiges, montants &ge; {{ "{:,.0f}".format(kpis.high_amount_threshold).replace(",", " ") }} ou cas IA</span>
+        </div>
+        <div class="kpi-card">
+            <span class="kpi-icon pause" aria-hidden="true"></span>
+            <span class="kpi-label">Dossiers suspendus</span>
+            <span class="kpi-number">{{ kpis.nb_dossiers_suspendus }}</span>
+            <span class="kpi-foot">Contestations ouvertes ou échéanciers actifs</span>
+        </div>
+        <div class="kpi-card">
+            <span class="kpi-icon cash" aria-hidden="true"></span>
+            <span class="kpi-label">Règlements simulés</span>
+            <span class="kpi-number is-success">{{ "{:,.0f}".format(kpis.total_paiements_simules).replace(",", " ") }} FCFA</span>
+            <span class="kpi-foot">{{ kpis.nb_relances_simulees }} relance(s) envoyée(s), {{ kpis.nb_relances_annulees }} annulée(s)</span>
+        </div>
+    </section>
+
+    <!-- Navigation par onglets (sans surcharge visuelle) -->
+    <div class="tabs-header">
+        <div class="tablist" role="tablist" aria-label="Sections de gestion du recouvrement">
+            <button type="button" role="tab" id="tab-portfolio" data-target="panel-portfolio" aria-controls="panel-portfolio" aria-selected="true" class="tab-btn">
+                Portefeuille <span class="tab-count">{{ invoices|length }}</span>
+            </button>
+            <button type="button" role="tab" id="tab-review" data-target="panel-review" aria-controls="panel-review" aria-selected="false" tabindex="-1" class="tab-btn">
+                Revue humaine <span class="tab-count">{{ review_queue|length }}</span>
+            </button>
+            <button type="button" role="tab" id="tab-reminders" data-target="panel-reminders" aria-controls="panel-reminders" aria-selected="false" tabindex="-1" class="tab-btn">
+                Relances <span class="tab-count">{{ reminders|length }}</span>
+            </button>
+            <button type="button" role="tab" id="tab-import" data-target="panel-import" aria-controls="panel-import" aria-selected="false" tabindex="-1" class="tab-btn">
+                Imports <span class="tab-count">{{ import_errors|length }}</span>
+            </button>
+            <button type="button" role="tab" id="tab-proofs" data-target="panel-proofs" aria-controls="panel-proofs" aria-selected="false" tabindex="-1" class="tab-btn">
+                Audit &amp; IA <span class="tab-count">{{ audit_logs|length }}</span>
+            </button>
+        </div>
+    </div>
+
+    <!-- ONGLET 1 : Portefeuille des factures -->
+    <section role="tabpanel" id="panel-portfolio" tabindex="0" aria-labelledby="tab-portfolio">
+        <div class="panel-card">
+            <div class="panel-header portfolio-header">
+                <div>
+                    <h2 class="panel-title">Factures par ordre de priorité</h2>
+                    <p class="panel-subtitle">Score de priorité · Retard 40 % · Solde 35 % · Historique client 25 %</p>
+                </div>
+                <div class="filter-chips" aria-label="Filtrer par statut métier">
+                    <a href="/" class="chip {% if not current_filter %}is-active{% endif %}">Toutes</a>
+                    <a href="/?statut=ECHUE" class="chip {% if current_filter == 'ECHUE' %}is-active{% endif %}">Échues</a>
+                    <a href="/?statut=PARTIELLEMENT_PAYEE" class="chip {% if current_filter == 'PARTIELLEMENT_PAYEE' %}is-active{% endif %}">Partiellement payées</a>
+                    <a href="/?statut=CONTESTEE" class="chip {% if current_filter == 'CONTESTEE' %}is-active{% endif %}">Contestées</a>
+                    <a href="/?statut=COUVERTE_PAR_ECHEANCIER" class="chip {% if current_filter == 'COUVERTE_PAR_ECHEANCIER' %}is-active{% endif %}">Sous échéancier</a>
+                    <a href="/?statut=SOLDEE" class="chip {% if current_filter == 'SOLDEE' %}is-active{% endif %}">Soldées</a>
+                </div>
+            </div>
+
+            <p class="table-hint">Faites défiler le tableau pour voir les autres colonnes.</p>
+            <div tabindex="0" role="region" aria-labelledby="caption-invoices" class="table-wrapper">
+                <table>
+                    <caption id="caption-invoices">Liste priorisée des factures clients</caption>
+                    <thead>
+                        <tr>
+                            <th scope="col">Facture</th>
+                            <th scope="col">Client</th>
+                            <th>Échéance</th>
+                            <th>Montant initial</th>
+                            <th>Solde</th>
+                            <th>Retard</th>
+                            <th>Statut</th>
+                            <th>Priorité</th>
+                            <th>Actions</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for inv in invoices %}
+                        <tr>
+                            <th scope="row">
+                                <a href="/invoices/{{ inv.invoice_id }}" style="color:var(--accent); text-decoration:none;">
+                                    {{ inv.invoice_id }}
+                                </a>
+                            </th>
+                            <td>
+                                <strong>{{ inv.nom_affiche }}</strong><br>
+                                <small style="color:var(--text-muted);">
+                                    {{ inv.canal_prefere }} · <code class="code-hash">{{ inv.contact_masque }}</code>
+                                </small>
+                            </td>
+                            <td>{{ inv.date_echeance }}</td>
+                            <td>{{ "{:,.0f}".format(inv.montant_initial).replace(",", " ") }} {{ inv.devise }}</td>
+                            <td><strong>{{ "{:,.0f}".format(inv.solde_restant).replace(",", " ") }} {{ inv.devise }}</strong></td>
+                            <td>{{ inv.jours_retard }} j</td>
+                            <td><span class="badge badge-{{ inv.statut_calcule }}">{{ inv.statut_calcule|replace('_', ' ')|capitalize }}</span></td>
+                            <td>
+                                <div class="score-box">
+                                    <div style="display:flex; justify-content:space-between; font-size:0.78rem;">
+                                        <strong>Score : {{ "%.3f"|format(inv.score_priorite) }}</strong>
+                                        {% if inv.ai_categorie and inv.ai_categorie != 'AUCUN_MESSAGE' %}
+                                        <span class="badge badge-CONTESTEE" style="font-size:0.68rem;">
+                                            IA : {{ inv.ai_categorie }} ({{ "%.0f"|format((inv.ai_confiance or 0) * 100) }}%)
+                                        </span>
+                                        {% endif %}
+                                    </div>
+                                    <div class="score-bar-track">
+                                        <div class="score-bar-fill" style="width: {{ (inv.score_priorite * 100)|round(0) }}%;"></div>
+                                    </div>
+                                    <small style="color:var(--text-muted); font-size:0.73rem;">{{ inv.explication_score }}</small>
+                                </div>
+                            </td>
+                            <td>
+                                <div class="row-actions">
+                                    <a href="/invoices/{{ inv.invoice_id }}" class="btn btn-outline btn-sm">Dossier</a>
+                                    {% if inv.solde_restant > 0 %}
+                                    <button type="button" class="btn btn-success btn-sm"
+                                            onclick='openPaymentModal({{ inv.invoice_id|tojson }}, {{ inv.solde_restant }})'>
+                                        Encaisser
+                                    </button>
+                                    {% endif %}
+                                </div>
+                            </td>
+                        </tr>
+                        {% else %}
+                        <tr><td class="empty-state" colspan="9">Aucune facture pour ce filtre.</td></tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </section>
+
+    <!-- ONGLET 2 : Revue humaine (4 yeux) -->
+    <section role="tabpanel" id="panel-review" tabindex="0" aria-labelledby="tab-review" hidden>
+        <div class="panel-card">
+            <div class="panel-header">
+                <div>
+                    <h2 class="panel-title">Dossiers à valider</h2>
+                    <p class="panel-subtitle">
+                        Dossiers bloqués avant envoi : litiges, montants &ge; {{ "{:,.0f}".format(kpis.high_amount_threshold).replace(",", " ") }} FCFA, incertitude IA ou historique inconnu.
+                        Un validateur ne peut pas approuver une relance qu'il a lui-même créée.
+                    </p>
+                </div>
+            </div>
+
+            {% if review_queue %}
+            <div tabindex="0" role="region" aria-labelledby="caption-review" class="table-wrapper">
+                <table>
+                    <caption id="caption-review">Dossiers en attente de validation humaine</caption>
+                    <thead>
+                        <tr>
+                            <th>Relance</th>
+                            <th>Facture &amp; Client</th>
+                            <th>Solde</th>
+                            <th>Créé par</th>
+                            <th>Motif de Revue Humaine</th>
+                            <th>Message Préparé</th>
+                            <th>Décision</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for rem in review_queue %}
+                        <tr>
+                            <th>{{ rem.reminder_id }}<br><small style="color:var(--text-muted);">{{ rem.niveau_relance }}</small></th>
+                            <td>
+                                <a href="/invoices/{{ rem.invoice_id }}" style="color:var(--accent); font-weight:600; text-decoration:none;">{{ rem.invoice_id }}</a><br>
+                                <small>{{ rem.nom_affiche }}</small>
+                            </td>
+                            <td><strong>{{ "{:,.0f}".format(rem.solde_restant).replace(",", " ") }} FCFA</strong></td>
+                            <td><code class="code-hash">{{ rem.cree_par or 'SYSTEME' }}</code></td>
+                            <td style="color:var(--warning); font-weight:600; max-width:260px;">{{ rem.motif_blocage }}</td>
+                            <td style="max-width:320px;"><small style="color:var(--text-secondary);">{{ rem.contenu_message }}</small></td>
+                            <td>
+                                <div class="row-actions">
+                                    <button type="button" class="btn btn-primary btn-sm"
+                                            onclick='openReviewModal({{ rem.reminder_id|tojson }}, {{ rem.invoice_id|tojson }}, "APPROUVER", {{ rem.contenu_message|tojson }}, {{ (rem.cree_par or "SYSTEME")|tojson }})'>
+                                        Examiner
+                                    </button>
+                                </div>
+                            </td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+            {% else %}
+            <p style="color:var(--text-muted); margin:1rem 0;">Aucun dossier en attente de validation humaine.</p>
+            {% endif %}
+        </div>
+    </section>
+
+    <!-- ONGLET 3 : File des Relances et Verification Pre-Envoi -->
+    <section role="tabpanel" id="panel-reminders" tabindex="0" aria-labelledby="tab-reminders" hidden>
+        <div class="panel-card">
+            <div class="panel-header">
+                <div>
+                    <h2 class="panel-title">Suivi des relances</h2>
+                    <p class="panel-subtitle">
+                        Juste avant l'envoi simulé : recalcul temps réel du solde, contrôle du canal préféré, du délai minimal de 7 jours et du plafond de 3 relances.
+                    </p>
+                </div>
+            </div>
+
+            <div tabindex="0" role="region" aria-labelledby="caption-reminders" class="table-wrapper">
+                <table>
+                    <caption id="caption-reminders">File complète des relances graduées</caption>
+                    <thead>
+                        <tr>
+                            <th>ID Relance</th>
+                            <th>Facture &amp; Client</th>
+                            <th>Canal</th>
+                            <th>Niveau</th>
+                            <th>Traçabilité (Créé / Validé)</th>
+                            <th>Statut Action</th>
+                            <th>Action</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for rem in reminders %}
+                        <tr>
+                            <th>{{ rem.reminder_id }}</th>
+                            <td>
+                                <a href="/invoices/{{ rem.invoice_id }}" style="color:var(--accent); font-weight:600; text-decoration:none;">{{ rem.invoice_id }}</a>
+                                <br><small>{{ rem.nom_affiche }}</small>
+                            </td>
+                            <td><span class="pill-meta">{{ rem.canal }}</span></td>
+                            <td>{{ rem.niveau_relance }}</td>
+                            <td>
+                                <small>Créé : <code class="code-hash">{{ rem.cree_par or 'SYSTEME' }}</code></small>
+                                {% if rem.valide_par %}
+                                <br><small>Validé : <code class="code-hash">{{ rem.valide_par }}</code></small>
+                                {% endif %}
+                            </td>
+                            <td>
+                                <span class="badge badge-{{ rem.statut_action }}">{{ rem.statut_action|replace('_', ' ')|capitalize }}</span>
+                                {% if rem.motif_blocage %}
+                                <br><small style="color:var(--text-muted);">{{ rem.motif_blocage }}</small>
+                                {% endif %}
+                            </td>
+                            <td>
+                                {% if rem.statut_action == 'APPROUVEE' %}
+                                <button type="button" class="btn btn-primary btn-sm"
+                                        onclick="callApiAction('/api/reminders/{{ rem.reminder_id }}/send')">
+                                    Simuler l’envoi
+                                </button>
+                                {% elif rem.statut_action == 'EN_ATTENTE_VALIDATION' %}
+                                <button type="button" class="btn btn-outline btn-sm"
+                                        onclick='openReviewModal({{ rem.reminder_id|tojson }}, {{ rem.invoice_id|tojson }}, "APPROUVER", {{ rem.contenu_message|tojson }}, {{ (rem.cree_par or "SYSTEME")|tojson }})'>
+                                    Revue Humaine
+                                </button>
+                                {% else %}
+                                <small style="color:var(--text-muted);">{{ rem.date_envoi_simule or '—' }}</small>
+                                {% endif %}
+                            </td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </section>
+
+    <!-- ONGLET 4 : Import Excel / CSV et Erreurs d'import -->
+    <section role="tabpanel" id="panel-import" tabindex="0" aria-labelledby="tab-import" hidden>
+        <div class="panel-card">
+            <div class="panel-header">
+                <div>
+                    <h2 class="panel-title">Importer des factures</h2>
+                    <p class="panel-subtitle">Sélectionnez un fichier Excel ou CSV. Les doublons et les lignes invalides figurent dans le journal des rejets.</p>
+                </div>
+                <form id="form-import-upload" style="display:flex; gap:0.5rem; align-items:center; flex-wrap:wrap;">
+                    <input aria-label="Fichier de factures" type="file" id="import-file-input" accept=".xlsx,.xls,.csv" required style="font-size:0.8rem;">
+                    <button type="submit" class="btn btn-primary btn-sm">Importer</button>
+                </form>
+            </div>
+
+            {% if import_errors %}
+            <div tabindex="0" role="region" aria-labelledby="caption-errors" class="table-wrapper">
+                <table>
+                    <caption id="caption-errors">Anomalies et doublons rejetés à l'importation</caption>
+                    <thead>
+                        <tr>
+                            <th>Lot</th>
+                            <th>Entité &amp; Ligne</th>
+                            <th>Motif du Rejet</th>
+                            <th>Données Brutes Isolées</th>
+                            <th>Horodatage</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for err in import_errors %}
+                        <tr>
+                            <th><code class="code-hash">{{ err.batch_id }}</code></th>
+                            <td>{{ err.entite }} (ligne {{ err.ligne_numero }})</td>
+                            <td style="color:var(--danger); font-weight:600;">{{ err.motif_rejet }}</td>
+                            <td><code class="code-hash">{{ err.donnees_brutes }}</code></td>
+                            <td><small>{{ err.date_import }}</small></td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+            {% else %}
+            <p style="color:var(--text-muted);">Aucune erreur d'importation enregistrée sur le lot courant.</p>
+            {% endif %}
+        </div>
+    </section>
+
+    <!-- ONGLET 5 : Laboratoire de Preuves (Audit SHA-256, Rejeu SHA-256 & Testeur IA) -->
+    <section role="tabpanel" id="panel-proofs" tabindex="0" aria-labelledby="tab-proofs" hidden>
+        <div class="panel-card">
+            <div class="lab-grid">
+                <div class="lab-box">
+                    <h3 style="margin:0 0 0.35rem; font-size:0.95rem;">Intégrité du journal</h3>
+                    <p style="margin:0 0 0.75rem; font-size:0.8rem; color:var(--text-muted);">
+                        Vérifie la chaîne de hachage depuis <code>GENESIS</code> et l'absence de toute altération (triggers SQLite anti-UPDATE/DELETE).
+                    </p>
+                    <button type="button" class="btn btn-primary btn-sm" onclick="verifyAuditChainUi()">
+                        Vérifier le journal
+                    </button>
+                    <div id="proof-audit-output" style="margin-top:0.75rem; font-size:0.8rem;"></div>
+                </div>
+
+                <div class="lab-box">
+                    <h3 style="margin:0 0 0.35rem; font-size:0.95rem;">Rejeu déterministe</h3>
+                    <p style="margin:0 0 0.75rem; font-size:0.8rem; color:var(--text-muted);">
+                        Recalcule tous les soldes, retards, statuts et scores et génère l'empreinte SHA-256 canonique de l'état final.
+                    </p>
+                    <button type="button" class="btn btn-outline btn-sm" onclick="runDeterministicReplayUi()">
+                        Recalculer l’empreinte
+                    </button>
+                    <div id="proof-replay-output" style="margin-top:0.75rem; font-size:0.8rem;"></div>
+                </div>
+
+                <div class="lab-box">
+                    <h3 style="margin:0 0 0.35rem; font-size:0.95rem;">Analyse d’un message</h3>
+                    <form id="form-ai-tester">
+                        <div class="form-field" style="margin-block-end:0.5rem;">
+                            <input type="text" id="ai-test-message"
+                                   placeholder="Ex: Les sacs livrés sont humides je refuse de payer..."
+                                   aria-label="Message client à tester" required>
+                        </div>
+                        <button type="submit" class="btn btn-primary btn-sm">Analyser le message</button>
+                    </form>
+                    <div id="ai-test-output"></div>
+                </div>
+            </div>
+
+            <div class="panel-header">
+                <div>
+                    <h2 class="panel-title">Journal d’audit</h2>
+                    <p class="panel-subtitle">Traçabilité nominative de chaque action, décision humaine et empreinte SHA-256</p>
+                </div>
+            </div>
+
+            <div tabindex="0" role="region" aria-labelledby="caption-audit" class="table-wrapper">
+                <table>
+                    <caption id="caption-audit">Journal d'audit horodaté et chaîné en SHA-256</caption>
+                    <thead>
+                        <tr>
+                            <th>#</th>
+                            <th>Horodatage</th>
+                            <th>Acteur</th>
+                            <th>Action</th>
+                            <th>Objet</th>
+                            <th>Transition</th>
+                            <th>Motif</th>
+                            <th>Empreinte SHA-256</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for log in audit_logs %}
+                        <tr>
+                            <th>{{ log.event_id }}</th>
+                            <td><small>{{ log.timestamp }}</small></td>
+                            <td><code class="code-hash">{{ log.acteur }}</code></td>
+                            <td><strong>{{ log.action }}</strong></td>
+                            <td>{{ log.objet_type }} · {{ log.objet_id }}</td>
+                            <td><small>{{ log.ancienne_valeur or '—' }} &rarr; {{ log.nouvelle_valeur or '—' }}</small></td>
+                            <td><small style="color:var(--text-secondary);">{{ log.motif or '—' }}</small></td>
+                            <td><code class="code-hash" title="Prev: {{ log.prev_hash }}">{{ (log.entry_hash or '')[:12] }}…</code></td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </section>
+</main>
+
+<!-- MODALE NATIVE <dialog> : Encaissement / Paiement Simule (sans role="dialog" redondant) -->
+<dialog id="dialog-payment" closedby="any" aria-labelledby="dialog-payment-title">
+    <div class="dialog-body">
+        <div class="dialog-header">
+            <h1 id="dialog-payment-title">Simuler un règlement (<span id="pay-invoice-label"></span>)</h1>
+        </div>
+        <form id="form-payment">
+            <input type="hidden" id="pay-invoice-id">
+            <div class="form-field">
+                <label for="pay-amount">Montant reçu (FCFA)</label>
+                <input type="number" id="pay-amount" step="1" min="1" required autofocus>
+                <small style="color:var(--text-muted); font-size:0.75rem;">
+                    Si le montant dépasse le solde restant, une alerte de surpaiement et une proposition d'avoir seront générées.
+                </small>
+            </div>
+            <div class="form-field">
+                <label for="pay-reference">Référence de transaction fictive (Clé d'idempotence)</label>
+                <input type="text" id="pay-reference" required>
+            </div>
+            <div class="dialog-footer">
+                <button type="button" class="btn btn-outline" onclick="document.getElementById('dialog-payment').close()">Annuler</button>
+                <button type="submit" class="btn btn-success">Enregistrer le règlement</button>
+            </div>
+        </form>
+    </div>
+</dialog>
+
+<!-- MODALE NATIVE <dialog> : Revue Humaine & Principe des 4 Yeux -->
+<dialog id="dialog-review" closedby="any" aria-labelledby="dialog-review-title">
+    <div class="dialog-body">
+        <div class="dialog-header">
+            <h1 id="dialog-review-title">Validation humaine · <span id="rev-title-id"></span></h1>
+        </div>
+        <p style="margin:0 0 0.85rem; font-size:0.8rem; color:var(--text-secondary);">
+            Préparé par : <code class="code-hash" id="rev-cree-par"></code> · Rôles autorisés : <strong>VALIDATEUR</strong> ou <strong>ADMIN</strong> (différent du créateur).
+        </p>
+        <form id="form-review">
+            <input type="hidden" id="rev-reminder-id">
+            <div class="form-field">
+                <label for="rev-decision">Décision du superviseur</label>
+                <select id="rev-decision" autofocus>
+                    <option value="APPROUVER">APPROUVER — Autoriser l'envoi tel quel</option>
+                    <option value="MODIFIER">MODIFIER — Adapter le message et approuver</option>
+                    <option value="SUSPENDRE">SUSPENDRE — Maintenir en attente</option>
+                    <option value="REJETER">REJETER — Interdire définitivement l'envoi</option>
+                </select>
+            </div>
+            <div class="form-field">
+                <label for="rev-motif">Motif justifiant la décision (tracé dans le journal SHA-256)</label>
+                <input type="text" id="rev-motif" minlength="3" required>
+            </div>
+            <div class="form-field">
+                <label for="rev-message">Contenu du message (modifiable avant approbation)</label>
+                <textarea id="rev-message" required></textarea>
+            </div>
+            <div class="dialog-footer">
+                <button type="button" class="btn btn-outline" onclick="document.getElementById('dialog-review').close()">Fermer</button>
+                <button type="submit" class="btn btn-primary">Valider la décision</button>
+            </div>
+        </form>
+    </div>
+</dialog>
+
+<div id="toast-stack" class="toast-stack" aria-live="polite"></div>
+
+<script src="/static/js/app.js"></script>
+</body>
+</html>
